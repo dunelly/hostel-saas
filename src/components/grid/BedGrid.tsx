@@ -1,13 +1,12 @@
 "use client";
 
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import React, { useState, useMemo, useEffect } from "react";
+import React, { useState, useMemo, useEffect, useCallback } from "react";
 import { useLang } from "@/contexts/LanguageContext";
 import {
   format,
   addDays,
   subDays,
-  startOfWeek,
   eachDayOfInterval,
   isToday,
   isWeekend,
@@ -30,6 +29,7 @@ import {
   MoveHorizontal,
   CalendarDays,
   Search,
+  Undo2,
 } from "lucide-react";
 import { GuestCell } from "./GuestCell";
 import { DroppableCell } from "./DroppableCell";
@@ -65,9 +65,7 @@ const ROOM_ACCENT_COLORS = ["#8b5cf6", "#0ea5e9", "#f59e0b", "#10b981", "#f97316
 
 export function BedGrid() {
   const queryClient = useQueryClient();
-  const [startDate, setStartDate] = useState(() =>
-    startOfWeek(new Date(), { weekStartsOn: 1 })
-  );
+  const [startDate, setStartDate] = useState(() => subDays(new Date(), 1));
   const [numDays, setNumDays] = useState(14);
   const [draggedAssignment, setDraggedAssignment] = useState<Assignment | null>(null);
   const [selectedReservation, setSelectedReservation] = useState<number | null>(null);
@@ -75,6 +73,14 @@ export function BedGrid() {
   const [isExtendingOverlay, setIsExtendingOverlay] = useState(false);
   const [dragMode, setDragMode] = useState<"stay" | "night">("stay");
   const [showPalette, setShowPalette] = useState(false);
+
+  type UndoEntry =
+    | { type: "move"; reservationId: number; fromBedId: string; singleDate?: string }
+    | { type: "extend"; reservationId: number; oldCheckOut: string; bedId: string };
+  const [undoHistory, setUndoHistory] = useState<UndoEntry[]>([]);
+  const pushUndo = useCallback((entry: UndoEntry) => {
+    setUndoHistory((prev) => [...prev.slice(-9), entry]);
+  }, []);
   const { t } = useLang();
   const { toast } = useToast();
 
@@ -194,18 +200,47 @@ export function BedGrid() {
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } })
   );
 
-  // Cmd/Ctrl+K → command palette
+  const performUndo = useCallback(() => {
+    setUndoHistory((prev) => {
+      const entry = prev[prev.length - 1];
+      if (!entry) return prev;
+      if (entry.type === "move") {
+        moveMutation.mutate(
+          { reservationId: entry.reservationId, newBedId: entry.fromBedId, singleDate: entry.singleDate },
+          {
+            onSuccess: () => queryClient.invalidateQueries({ queryKey: ["assignments"] }),
+            onError: (err: Error) => toast(err.message, "error"),
+          }
+        );
+      } else {
+        extendMutation.mutate(
+          { reservationId: entry.reservationId, newCheckOut: entry.oldCheckOut, targetBedId: entry.bedId },
+          {
+            onSuccess: () => queryClient.invalidateQueries({ queryKey: ["assignments"] }),
+            onError: (err: Error) => toast(err.message, "error"),
+          }
+        );
+      }
+      return prev.slice(0, -1);
+    });
+  }, [moveMutation, extendMutation, queryClient, toast]);
+
+  // Cmd/Ctrl+K → command palette, Cmd+Z → undo
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key === "k") {
         e.preventDefault();
         setShowPalette((p) => !p);
       }
+      if ((e.metaKey || e.ctrlKey) && e.key === "z") {
+        e.preventDefault();
+        performUndo();
+      }
       if (e.key === "Escape") setShowPalette(false);
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, []);
+  }, [performUndo]);
 
   function handleDragStart(event: DragStartEvent) {
     const data = event.active.data.current;
@@ -245,11 +280,13 @@ export function BedGrid() {
       }
 
       const extending = newCheckOut > assignment.checkOut;
+      const oldCheckOut = assignment.checkOut;
       extendMutation.mutate(
         { reservationId: assignment.reservationId, newCheckOut, targetBedId },
         {
           onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ["assignments"] });
+            pushUndo({ type: "extend", reservationId: assignment.reservationId, oldCheckOut, bedId: assignment.bedId });
             toast(extending ? "Stay extended" : "Stay shortened", "success");
           },
           onError: (error: Error) => toast(error.message, "error"),
@@ -273,17 +310,8 @@ export function BedGrid() {
     moveMutation.mutate(moveData, {
       onSuccess: () => {
         queryClient.invalidateQueries({ queryKey: ["assignments"] });
-        toast("Guest moved", "success", {
-          label: "Undo",
-          onClick: () =>
-            moveMutation.mutate(
-              { reservationId: actData.reservationId, newBedId: originalBedId, singleDate: dragMode === "night" ? actData.date : undefined },
-              {
-                onSuccess: () => queryClient.invalidateQueries({ queryKey: ["assignments"] }),
-                onError: (err: Error) => toast(err.message, "error"),
-              }
-            ),
-        });
+        pushUndo({ type: "move", reservationId: actData.reservationId, fromBedId: originalBedId, singleDate: moveData.singleDate });
+        toast("Guest moved", "success");
       },
       onError: (error: Error) => toast(error.message, "error"),
     });
@@ -300,8 +328,8 @@ export function BedGrid() {
           <div className="flex items-center bg-white rounded-lg border border-slate-200 shadow-sm">
             <button
               onClick={() =>
-                setStartDate((d) => {
-                  const minDate = subDays(startOfWeek(new Date(), { weekStartsOn: 1 }), 30);
+                setStartDate((d: Date) => {
+                  const minDate = subDays(new Date(), 7);
                   const next = subDays(d, numDays);
                   return next < minDate ? minDate : next;
                 })
@@ -311,14 +339,14 @@ export function BedGrid() {
               <ChevronLeft size={16} className="text-slate-600" />
             </button>
             <button
-              onClick={() => setStartDate(startOfWeek(new Date(), { weekStartsOn: 1 }))}
+              onClick={() => setStartDate(subDays(new Date(), 1))}
               className="px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 transition-colors flex items-center gap-1.5"
             >
               <Calendar size={14} />
               {t("grid_today")}
             </button>
             <button
-              onClick={() => setStartDate((d) => addDays(d, numDays))}
+              onClick={() => setStartDate((d: Date) => addDays(d, numDays))}
               className="p-2 hover:bg-slate-50 rounded-r-lg border-l border-slate-200 transition-colors"
             >
               <ChevronRight size={16} className="text-slate-600" />
@@ -379,6 +407,19 @@ export function BedGrid() {
 
           <div className="h-4 w-px bg-slate-200 hidden lg:block" />
 
+          {/* Undo */}
+          <button
+            onClick={performUndo}
+            disabled={undoHistory.length === 0}
+            title="Undo last move (⌘Z)"
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-white border border-slate-200 rounded-lg shadow-sm text-xs font-medium text-slate-600 hover:text-slate-900 hover:border-slate-300 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+          >
+            <Undo2 size={13} />
+            Undo
+          </button>
+
+          <div className="h-4 w-px bg-slate-200 hidden lg:block" />
+
           {/* Drag mode toggle */}
           <div className="flex bg-white rounded-lg border border-slate-200 shadow-sm overflow-hidden">
             <button
@@ -408,16 +449,15 @@ export function BedGrid() {
           {/* Period selector */}
           <div className="flex bg-white rounded-lg border border-slate-200 shadow-sm overflow-hidden">
             {[
-              { n: 7, label: "1 Week" },
               { n: 14, label: "2 Weeks" },
               { n: 21, label: "3 Weeks" },
-            ].map(({ n, label }) => (
+            ].map(({ n, label }, i) => (
               <button
                 key={n}
                 onClick={() => setNumDays(n)}
                 className={`px-3 py-1.5 text-xs font-medium transition-colors ${
                   numDays === n ? "bg-slate-800 text-white" : "text-slate-600 hover:bg-slate-50"
-                } ${n !== 7 ? "border-l border-slate-200" : ""}`}
+                } ${i !== 0 ? "border-l border-slate-200" : ""}`}
               >
                 {label}
               </button>
