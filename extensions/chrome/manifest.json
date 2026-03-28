@@ -1,0 +1,61 @@
+{
+  "manifest_version": 3,
+  "name": "Hostel Reservation Importer",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAwyNltIwlLS8ADfIYbgniHHp6MRcMn0s9kk5paudJMZzhICOqMCnGTRTWKc1U7yfD/e9/Oi1LiZV1LblCSe3MdhWOu1iSj37oEN8prXLfGOD/U9hUqGg9gfO8Wb3RpwGRJFZVrwHyZnIjv4LXPZ3xpQ60dxWiS5zCfnk4spkdXuPPz8Quwdn1o0emWjr+CUX8tjLeYgyEsI/p0mviqXVSM9imrShCKgnvEouPJ5lp9M3ks3w6bW1j/Id71VduWnrKmGzcgVUJ0XXma9zOyX5RjTSClrkSacQHvNF8q6Sk9Nj0GreJ6vrx+q5G1StLgNCH85PdPOvwwHOtA09joLfAsQIDAQAB",
+  "version": "1.0.0",
+  "description": "Import reservations from Booking.com and Hostelworld into Hostel Manager",
+  "permissions": [
+    "activeTab",
+    "storage",
+    "scripting",
+    "tabs",
+    "alarms",
+    "identity"
+  ],
+  "oauth2": {
+    "client_id": "224459923893-rtprf94dk4n52kdrmrqtabnk5one65r6.apps.googleusercontent.com",
+    "scopes": ["https://www.googleapis.com/auth/gmail.readonly"]
+  },
+  "host_permissions": [
+    "https://admin.booking.com/*",
+    "https://inbox.hostelworld.com/*",
+    "https://mail.google.com/*",
+    "http://localhost:3000/*",
+    "https://*.vercel.app/*"
+  ],
+  "background": {
+    "service_worker": "src/background/service-worker.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://admin.booking.com/*"
+      ],
+      "js": [
+        "src/content/booking.js"
+      ],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://inbox.hostelworld.com/*"
+      ],
+      "js": [
+        "src/content/hostelworld.js"
+      ],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://mail.google.com/*"
+      ],
+      "js": [
+        "src/content/gmail.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ],
+  "action": {
+    "default_popup": "src/popup/popup.html"
+  }
+}
