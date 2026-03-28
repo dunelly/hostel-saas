@@ -10,7 +10,6 @@ import {
   Settings,
   ChevronLeft,
   ChevronRight,
-  HelpCircle,
   MapPin,
   Shirt,
 } from "lucide-react";
@@ -28,6 +27,7 @@ export function Sidebar() {
     { href: "/reservations", label: t("nav_reservations"), icon: ClipboardList },
     { href: "/tours", label: t("nav_tours"), icon: MapPin },
     { href: "/laundry", label: t("nav_laundry"), icon: Shirt },
+    { href: "/settings", label: "Settings", icon: Settings },
   ];
 
   return (
@@ -94,19 +94,6 @@ export function Sidebar() {
         })}
       </nav>
 
-      {/* Quick Help */}
-      {!collapsed && (
-        <div className="mx-3 mb-3 p-3 bg-slate-800/50 rounded-lg border border-slate-700/50">
-          <div className="flex items-center gap-2 text-xs text-slate-400 mb-1">
-            <HelpCircle size={12} />
-            <span className="font-medium">Chrome Extension</span>
-          </div>
-          <p className="text-[10px] text-slate-500 leading-relaxed">
-            Install the extension to auto-import from Booking.com &
-            Hostelworld.
-          </p>
-        </div>
-      )}
 
       {/* Collapse toggle */}
       <button

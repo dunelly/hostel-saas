@@ -9,7 +9,7 @@ export async function GET(request: NextRequest) {
 
   if (error) {
     return NextResponse.redirect(
-      new URL(`/?gmail_error=${encodeURIComponent(error)}`, request.url)
+      new URL(`/settings?gmail_error=${encodeURIComponent(error)}`, request.url)
     );
   }
 
@@ -36,11 +36,11 @@ export async function GET(request: NextRequest) {
         set: { value: JSON.stringify(tokens), updatedAt: new Date().toISOString() },
       });
 
-    return NextResponse.redirect(new URL("/?gmail_connected=1", request.url));
+    return NextResponse.redirect(new URL("/settings?gmail_connected=1", request.url));
   } catch (err) {
     const message = err instanceof Error ? err.message : "Unknown error";
     return NextResponse.redirect(
-      new URL(`/?gmail_error=${encodeURIComponent(message)}`, request.url)
+      new URL(`/settings?gmail_error=${encodeURIComponent(message)}`, request.url)
     );
   }
 }
