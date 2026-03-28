@@ -75,10 +75,16 @@ export function parseBookingComEmail(
 }
 
 // ─── Hostelworld ─────────────────────────────────────────────────────────────
-// Subject patterns:
-//   "New Booking Confirmation - HW1234567"
-//   "Booking Confirmation #HW-1234567"
-//   "New reservation from [Name]"
+// Exact email format:
+//   (ref: 279366-576300005):
+//   Anna Bösl
+//   Arrival: 25th Mar 2026
+//   Nights: 1
+//   Guests: 2
+//   Room Details:
+//   25th Mar 2026: 2 Beds reserved in 8 Bed Mixed Dorm Ensuite
+//   Total Price: USD 18.00
+//   Deposit Paid: USD 2.70
 
 export function parseHostelworldEmail(
   subject: string,
@@ -87,48 +93,91 @@ export function parseHostelworldEmail(
   const text = stripHtml(body);
   const full = subject + "\n" + text;
 
-  // Booking reference — HW prefix common
-  const idMatch =
-    full.match(/(?:HW|HB)[- ]?(\d{5,12})/i) ||
-    full.match(/[Bb]ooking\s*(?:reference|ref|#|ID|number)?:?\s*#?([A-Z]{0,3}\d{6,12})/i) ||
-    full.match(/[Cc]onfirmation\s*#?\s*([A-Z]{0,3}\d{6,12})/i);
-  if (!idMatch) return null;
-  const externalId = `HW-${idMatch[1]}`;
+  // Reference: "279366-576300005" from "(ref: 279366-576300005):"
+  const refMatch = full.match(/(?:ref(?:erence)?[:\s#]*|\(ref:\s*)?(\d{5,8}-\d{7,12})\)?/i);
+  if (!refMatch) return null;
+  const ref = refMatch[1];
 
-  // Guest name
-  const nameMatch =
-    full.match(/[Gg]uest\s*(?:name)?:?\s*([A-Z][a-z]+(?:\s+[A-Z][a-z]+)+)/) ||
-    full.match(/[Nn]ame:?\s*([A-Z][a-z]+(?:\s+[A-Z][a-z]+)+)/) ||
-    subject.match(/[Cc]onfirmation[^-]*-\s*([A-Z][a-z]+(?:\s+[A-Z][a-z]+)+)/);
-  if (!nameMatch) return null;
-  const guestName = nameMatch[1].trim();
+  // Guest name: first non-empty line after the ref number in the body
+  const refPos = text.indexOf(ref);
+  const afterRef = refPos >= 0 ? text.slice(refPos + ref.length) : text;
+  const nameLines = afterRef.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+  const guestName = nameLines[0];
+  if (!guestName || guestName.length < 2 || guestName.length > 80) return null;
+  if (/^arrival|^nights|^guests|^room|^total|^deposit/i.test(guestName)) return null;
 
-  // Dates
-  const checkIn = extractHostelworldDate(full, ["arrival", "check.?in", "arriving"]);
-  const checkOut = extractHostelworldDate(full, ["departure", "check.?out", "departing"]);
-  if (!checkIn || !checkOut) return null;
+  // Arrival date
+  const arrivalMatch = full.match(/Arrival:\s*(.+)/i);
+  const checkIn = parseHWDate(arrivalMatch?.[1]?.trim());
+  if (!checkIn) return null;
 
-  // Number of guests
-  const guestsMatch = full.match(/(\d+)\s+(?:guest|person|adult|bed)/i);
-  const numGuests = guestsMatch ? parseInt(guestsMatch[1]) : 1;
+  // Checkout = arrival + nights (no explicit checkout in HW emails)
+  const nightsMatch = full.match(/Nights:\s*(\d+)/i);
+  const nights = parseInt(nightsMatch?.[1] ?? "1") || 1;
+  const checkOut = addDaysToDate(checkIn, nights);
 
-  // Price
-  const { price, currency } = extractPrice(full);
+  // Guests count
+  const guestsMatch = full.match(/Guests:\s*(\d+)/i);
+  const numGuests = parseInt(guestsMatch?.[1] ?? "1") || 1;
 
-  const roomTypeReq = /female|women|ladies/i.test(full) ? "female" : "mixed";
+  // Room line: "25th Mar 2026: 2 Beds reserved in 8 Bed Mixed Dorm Ensuite"
+  const roomLineMatch = full.match(
+    /\d+(?:st|nd|rd|th)?\s+\w+\s+\d{4}:\s*\d+\s+Beds?(?:\s+reserved)?\s+in\s+(.+)/i
+  );
+  const roomText = roomLineMatch?.[1]?.trim() ?? "";
+
+  // Price: "Total Price: USD 18.00"
+  const priceMatch = full.match(/Total Price:\s*([A-Z]+)\s*([\d.,]+)/i);
+  const currency = priceMatch?.[1] ?? "USD";
+  const totalPrice = priceMatch ? parseFloat(priceMatch[2].replace(",", ".")) : null;
+
+  const roomTypeReq = /\bfemale\b|\bwomen\b/i.test(roomText) ? "female" : "mixed";
 
   return {
-    externalId,
+    externalId: `HW-${ref.replace("-", "")}`,
     source: "hostelworld",
-    guestName,
+    guestName: guestName.trim(),
     checkIn,
     checkOut,
     roomTypeReq,
     numGuests,
-    totalPrice: price,
+    totalPrice: totalPrice && totalPrice > 0 ? totalPrice : null,
     currency,
     rawData: text.substring(0, 1000),
   };
+}
+
+function parseHWDate(d: string | undefined): string | null {
+  if (!d) return null;
+  const s = d.trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+
+  const months: Record<string, number> = {
+    january:1, february:2, march:3, april:4, may:5, june:6,
+    july:7, august:8, september:9, october:10, november:11, december:12,
+    jan:1, feb:2, mar:3, apr:4, jun:6, jul:7, aug:8, sep:9, oct:10, nov:11, dec:12,
+  };
+
+  // "25th Mar 2026" or "25 March 2026"
+  const m = s.match(/(\d{1,2})(?:st|nd|rd|th)?\s+([a-z]+)\.?\s+(\d{4})/i);
+  if (m) {
+    const key = m[2].toLowerCase();
+    const mon = months[key] ?? months[key.slice(0, 3)];
+    if (mon) return `${m[3]}-${String(mon).padStart(2, "0")}-${m[1].padStart(2, "0")}`;
+  }
+
+  // Fallback — use noon to avoid UTC offset shifting the date
+  try {
+    const p = new Date(s + "T12:00:00");
+    if (!isNaN(p.getTime())) return p.toISOString().split("T")[0];
+  } catch {}
+  return null;
+}
+
+function addDaysToDate(dateStr: string, n: number): string {
+  const d = new Date(dateStr + "T12:00:00");
+  d.setDate(d.getDate() + n);
+  return d.toISOString().split("T")[0];
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -170,20 +219,6 @@ function extractBookingDate(text: string, labels: string[]): string | null {
   return null;
 }
 
-function extractHostelworldDate(text: string, labels: string[]): string | null {
-  for (const label of labels) {
-    const pattern = new RegExp(
-      `${label}\\s*:?\\s*(\\d{1,2}[\\s/.-](?:\\w+|\\d{1,2})[\\s/.-]\\d{2,4}|\\d{4}-\\d{2}-\\d{2})`,
-      "i"
-    );
-    const m = text.match(pattern);
-    if (m) {
-      const parsed = normalizeDate(m[1]);
-      if (parsed) return parsed;
-    }
-  }
-  return extractBookingDate(text, labels);
-}
 
 function normalizeDate(raw: string): string | null {
   try {
