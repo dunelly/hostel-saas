@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { reservations } from "@/lib/db/schema";
+import { reservations, bedAssignments } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 
@@ -51,6 +51,10 @@ export async function PATCH(
       .update(reservations)
       .set(updates)
       .where(eq(reservations.id, reservationId));
+
+    if (updates.status === "cancelled" || updates.status === "no_show") {
+      await db.delete(bedAssignments).where(eq(bedAssignments.reservationId, reservationId));
+    }
 
     return NextResponse.json({ success: true, updated: updates });
   } catch (error) {

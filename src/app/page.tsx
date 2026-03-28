@@ -19,10 +19,6 @@ import {
   ArrowUpRight,
   CalendarClock,
   Download,
-  Mail,
-  RefreshCw,
-  CheckCircle2,
-  XCircle,
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import Link from "next/link";
@@ -48,7 +44,6 @@ interface Stats {
 
 export default function DashboardPage() {
   const [seeded, setSeeded] = useState(false);
-  const [syncResult, setSyncResult] = useState<{ imported: number; duplicates: number; errors: string[]; emailsChecked?: number } | null>(null);
   const queryClient = useQueryClient();
 
   const today = format(new Date(), "yyyy-MM-dd");
@@ -65,29 +60,6 @@ export default function DashboardPage() {
       seedMutation.mutate();
     }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
-
-  const { data: gmailStatus } = useQuery<{ connected: boolean; updatedAt?: string }>({
-    queryKey: ["gmail-status"],
-    queryFn: () => fetch("/api/gmail/status").then((r) => r.json()),
-    enabled: seeded,
-  });
-
-  const gmailSyncMutation = useMutation({
-    mutationFn: () =>
-      fetch("/api/gmail/sync", { method: "POST" }).then(async (r) => {
-        const data = await r.json();
-        if (!r.ok) throw new Error(data.error || "Sync failed");
-        return data;
-      }),
-    onSuccess: (data) => {
-      setSyncResult({ imported: data.imported ?? 0, duplicates: data.duplicates ?? 0, errors: data.errors ?? [], emailsChecked: data.emailsChecked });
-      queryClient.invalidateQueries({ queryKey: ["stats"] });
-      queryClient.invalidateQueries({ queryKey: ["reservations"] });
-    },
-    onError: (err: Error) => {
-      setSyncResult({ imported: 0, duplicates: 0, errors: [err.message] });
-    },
-  });
 
   const { data: stats } = useQuery<Stats>({
     queryKey: ["stats", today, twoWeeksOut],
@@ -280,58 +252,6 @@ export default function DashboardPage() {
                   <div className="text-[11px] text-slate-400">View & manage beds</div>
                 </div>
               </Link>
-
-              {/* Gmail Import */}
-              <div className="border border-slate-100 rounded-lg p-3">
-                <div className="flex items-center gap-3">
-                  <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${
-                    gmailStatus?.connected ? "bg-red-50" : "bg-slate-50"
-                  }`}>
-                    <Mail size={16} className={gmailStatus?.connected ? "text-red-500" : "text-slate-400"} />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="text-sm font-medium text-slate-700">Gmail Import</div>
-                    <div className="text-[11px] text-slate-400">
-                      {gmailStatus?.connected ? "Connected — reads booking emails" : "Not connected"}
-                    </div>
-                  </div>
-                  {gmailStatus?.connected ? (
-                    <button
-                      onClick={() => { setSyncResult(null); gmailSyncMutation.mutate(); }}
-                      disabled={gmailSyncMutation.isPending}
-                      className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-900 text-white text-xs font-semibold rounded-lg hover:bg-slate-800 transition-colors disabled:opacity-60"
-                    >
-                      <RefreshCw size={12} className={gmailSyncMutation.isPending ? "animate-spin" : ""} />
-                      {gmailSyncMutation.isPending ? "Syncing…" : "Sync"}
-                    </button>
-                  ) : (
-                    <a
-                      href="/api/gmail/auth"
-                      className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-900 text-white text-xs font-semibold rounded-lg hover:bg-slate-800 transition-colors"
-                    >
-                      Connect
-                    </a>
-                  )}
-                </div>
-
-                {/* Sync result */}
-                {syncResult && (
-                  <div className={`mt-2.5 px-3 py-2 rounded-lg text-xs font-medium flex items-start gap-2 ${
-                    (syncResult.errors?.length ?? 0) > 0 && syncResult.imported === 0
-                      ? "bg-red-50 text-red-700"
-                      : "bg-emerald-50 text-emerald-700"
-                  }`}>
-                    {(syncResult.errors?.length ?? 0) > 0 && syncResult.imported === 0 ? (
-                      <XCircle size={13} className="shrink-0 mt-0.5" />
-                    ) : (
-                      <CheckCircle2 size={13} className="shrink-0 mt-0.5" />
-                    )}
-                    <span>
-                      {`${syncResult.imported} imported, ${syncResult.duplicates} skipped${syncResult.emailsChecked ? ` · ${syncResult.emailsChecked} emails checked` : ""}`}
-                    </span>
-                  </div>
-                )}
-              </div>
             </div>
           </div>
 

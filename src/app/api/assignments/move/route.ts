@@ -49,24 +49,32 @@ export async function POST(request: NextRequest) {
     // Check target bed is free for all required dates (ignore cancelled/no_show)
     for (const assignment of toMove) {
       const conflict = await db
-        .select({ id: bedAssignments.id })
+        .select({ id: bedAssignments.id, status: reservations.status })
         .from(bedAssignments)
         .innerJoin(reservations, eq(bedAssignments.reservationId, reservations.id))
         .where(
           and(
             eq(bedAssignments.bedId, newBedId),
-            eq(bedAssignments.date, assignment.date),
-            ne(reservations.status, "cancelled"),
-            ne(reservations.status, "no_show")
+            eq(bedAssignments.date, assignment.date)
           )
         );
-      if (conflict.length > 0) {
+
+      const activeConflict = conflict.find(
+        (c) => c.status !== "cancelled" && c.status !== "no_show"
+      );
+
+      if (activeConflict) {
         return NextResponse.json(
-          {
-            error: `Bed ${newBedId} is already occupied on ${assignment.date}`,
-          },
+          { error: `Bed ${newBedId} is already occupied on ${assignment.date}` },
           { status: 409 }
         );
+      }
+
+      const ghostConflicts = conflict.filter(
+        (c) => c.status === "cancelled" || c.status === "no_show"
+      );
+      for (const ghost of ghostConflicts) {
+        await db.delete(bedAssignments).where(eq(bedAssignments.id, ghost.id));
       }
     }
 

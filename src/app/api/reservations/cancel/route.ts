@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { reservations } from "@/lib/db/schema";
+import { reservations, bedAssignments } from "@/lib/db/schema";
 import { eq, inArray, and } from "drizzle-orm";
 
 const API_KEY = process.env.IMPORT_API_KEY || "hostel-dev-key";
@@ -34,6 +34,10 @@ export async function POST(request: NextRequest) {
       .update(reservations)
       .set({ status: "cancelled" })
       .where(inArray(reservations.id, foundIds));
+
+    await db
+      .delete(bedAssignments)
+      .where(inArray(bedAssignments.reservationId, foundIds));
 
     return NextResponse.json({
       cancelled: foundIds.length,

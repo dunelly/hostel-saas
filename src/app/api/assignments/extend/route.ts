@@ -1,13 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { reservations, bedAssignments, beds, rooms } from "@/lib/db/schema";
-import { eq, and, desc, gte, lte, inArray } from "drizzle-orm";
+import { eq, and, ne, desc, gte, lte, inArray } from "drizzle-orm";
 import { z } from "zod";
-import { eachDayOfInterval, parseISO } from "date-fns";
+import { eachDayOfInterval, parseISO, format } from "date-fns";
 
 const schema = z.object({
   reservationId: z.number().int(),
   newCheckOut: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  targetBedId: z.string().optional(),
   additionalPrice: z.number().min(0).optional(),
 });
 
@@ -19,7 +20,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Invalid request", details: parsed.error.issues }, { status: 400 });
     }
 
-    const { reservationId, newCheckOut, additionalPrice } = parsed.data;
+    const { reservationId, newCheckOut, targetBedId, additionalPrice } = parsed.data;
 
     const reservation = await db
       .select()
@@ -31,13 +32,56 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Reservation not found" }, { status: 404 });
     }
 
-    if (newCheckOut <= reservation.checkOut) {
-      return NextResponse.json(
-        { error: `New check-out (${newCheckOut}) must be after current check-out (${reservation.checkOut})` },
-        { status: 400 }
-      );
+    if (newCheckOut === reservation.checkOut) {
+      return NextResponse.json({ message: "No change" });
     }
 
+    if (newCheckOut <= reservation.checkIn) {
+      return NextResponse.json({ error: "Must keep at least one night" }, { status: 400 });
+    }
+
+    const existingNights = Math.round(
+      (new Date(reservation.checkOut).getTime() - new Date(reservation.checkIn).getTime()) / 86400000
+    );
+    const perNightRate =
+      reservation.totalPrice && existingNights > 0
+        ? reservation.totalPrice / existingNights
+        : 0;
+
+    // ── SHRINK ──────────────────────────────────────────────
+    if (newCheckOut < reservation.checkOut) {
+      // Delete assignment rows for nights being removed (date >= newCheckOut)
+      await db.delete(bedAssignments).where(
+        and(
+          eq(bedAssignments.reservationId, reservationId),
+          gte(bedAssignments.date, newCheckOut)
+        )
+      );
+
+      const newNightCount = Math.round(
+        (new Date(newCheckOut).getTime() - new Date(reservation.checkIn).getTime()) / 86400000
+      );
+      const nightsRemoved = existingNights - newNightCount;
+      const reducedCost = perNightRate * nightsRemoved;
+      const newTotalPrice =
+        reservation.totalPrice != null
+          ? Math.round((reservation.totalPrice - reducedCost) * 100) / 100
+          : null;
+
+      const updateData: Record<string, unknown> = { checkOut: newCheckOut };
+      if (newTotalPrice !== null) {
+        updateData.totalPrice = newTotalPrice;
+        const amountPaid = reservation.amountPaid ?? 0;
+        updateData.paymentStatus =
+          amountPaid <= 0 ? "unpaid" : amountPaid >= newTotalPrice ? "paid" : "partial";
+      }
+
+      await db.update(reservations).set(updateData).where(eq(reservations.id, reservationId));
+
+      return NextResponse.json({ nightsRemoved, newCheckOut, newTotalPrice });
+    }
+
+    // ── EXTEND ──────────────────────────────────────────────
     const lastAssignment = await db
       .select()
       .from(bedAssignments)
@@ -58,47 +102,40 @@ export async function POST(request: NextRequest) {
       end: parseISO(newCheckOut),
     }).slice(0, -1);
 
-    const newDateStrs = newNights.map((n) => n.toISOString().split("T")[0]);
+    const newDateStrs = newNights.map((n) => format(n, "yyyy-MM-dd"));
 
-    // Check if preferred bed is free for ALL new nights
-    let useBedId = preferredBedId;
-    let sameBed = true;
+    const targetBedToUse = targetBedId || preferredBedId;
+    const useBedId = targetBedToUse;
+    const sameBed = targetBedToUse === preferredBedId;
 
     const conflicts = await db
-      .select()
+      .select({ id: bedAssignments.id, date: bedAssignments.date, status: reservations.status })
       .from(bedAssignments)
+      .innerJoin(reservations, eq(bedAssignments.reservationId, reservations.id))
       .where(
         and(
-          eq(bedAssignments.bedId, preferredBedId),
+          eq(bedAssignments.bedId, targetBedToUse),
+          ne(bedAssignments.reservationId, reservationId),
           gte(bedAssignments.date, newDateStrs[0]),
           lte(bedAssignments.date, newDateStrs[newDateStrs.length - 1])
         )
       );
 
-    const conflictDates = new Set(conflicts.map((c) => c.date));
-    const hasConflict = newDateStrs.some((d) => conflictDates.has(d));
+    const activeConflicts = conflicts.filter((c) => c.status !== "cancelled" && c.status !== "no_show");
+    const activeConflictDates = new Set(activeConflicts.map((c) => c.date));
+    const hasActiveConflict = newDateStrs.some((d) => activeConflictDates.has(d));
 
-    if (hasConflict) {
-      // Find an alternative bed in an eligible room
-      const altBed = await findFreeBed(reservation.roomTypeReq, newDateStrs);
-      if (!altBed) {
-        return NextResponse.json(
-          { error: `No beds available for the extended nights. All eligible beds are occupied.` },
-          { status: 409 }
-        );
-      }
-      useBedId = altBed;
-      sameBed = false;
+    if (hasActiveConflict) {
+      return NextResponse.json(
+        { error: `Bed ${targetBedToUse} is occupied for some of the extended nights.` },
+        { status: 409 }
+      );
     }
 
-    // Calculate additional price
-    const existingNights = Math.round(
-      (new Date(reservation.checkOut).getTime() - new Date(reservation.checkIn).getTime()) / 86400000
-    );
-    const perNightRate =
-      reservation.totalPrice && existingNights > 0
-        ? reservation.totalPrice / existingNights
-        : 0;
+    const ghostConflicts = conflicts.filter((c) => c.status === "cancelled" || c.status === "no_show");
+    for (const ghost of ghostConflicts) {
+      await db.delete(bedAssignments).where(eq(bedAssignments.id, ghost.id));
+    }
 
     const extraCost = additionalPrice ?? perNightRate * newNights.length;
     const newTotalPrice =

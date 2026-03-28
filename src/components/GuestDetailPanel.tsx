@@ -1,32 +1,10 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { format, addDays, parseISO } from "date-fns";
 import { useLang } from "@/contexts/LanguageContext";
-import {
-  X,
-  LogIn,
-  LogOut,
-  CreditCard,
-  AlertCircle,
-  BedDouble,
-  Calendar,
-  User,
-  Hash,
-  Clock,
-  MinusCircle,
-  CheckCircle2,
-  XCircle,
-  CalendarPlus,
-  ChevronDown,
-  ChevronUp,
-  MapPin,
-  Shirt,
-  FileText,
-  Wallet,
-  Moon,
-} from "lucide-react";
+import { X, LogIn, LogOut, AlertCircle, CalendarPlus, Moon, Ban, UserX, Undo2, ChevronDown } from "lucide-react";
 
 interface GuestProfile {
   id: number;
@@ -65,33 +43,42 @@ interface Props {
   onClose: () => void;
 }
 
-const SOURCE_COLORS: Record<string, { bg: string; text: string; dot: string; label: string }> = {
-  "booking.com": { bg: "bg-blue-50", text: "text-blue-700", dot: "bg-blue-500", label: "Booking.com" },
-  hostelworld: { bg: "bg-orange-50", text: "text-orange-700", dot: "bg-orange-500", label: "Hostelworld" },
-  manual: { bg: "bg-emerald-50", text: "text-emerald-700", dot: "bg-emerald-500", label: "Walk-in" },
-};
+const STATUS_CFG = {
+  confirmed:   { color: "#2563eb", bg: "bg-blue-600",    label: "Arriving",    Icon: LogIn  },
+  checked_in:  { color: "#059669", bg: "bg-emerald-600", label: "Checked In",  Icon: LogIn  },
+  checked_out: { color: "#78716c", bg: "bg-stone-500",   label: "Checked Out", Icon: LogOut },
+  cancelled:   { color: "#dc2626", bg: "bg-red-600",     label: "Cancelled",   Icon: Ban    },
+  no_show:     { color: "#d97706", bg: "bg-amber-600",   label: "No Show",     Icon: UserX  },
+} as const;
 
-const PAYMENT_CONFIG = {
-  unpaid: { label: "Unpaid", bg: "bg-red-100", text: "text-red-700", dot: "bg-red-500" },
-  partial: { label: "Partial", bg: "bg-amber-100", text: "text-amber-700", dot: "bg-amber-500" },
-  paid: { label: "Paid", bg: "bg-emerald-100", text: "text-emerald-700", dot: "bg-emerald-500" },
-  refunded: { label: "Refunded", bg: "bg-slate-200", text: "text-slate-600", dot: "bg-slate-400" },
+const SOURCE_LABEL: Record<string, string> = {
+  "booking.com": "Booking.com",
+  hostelworld: "Hostelworld",
+  manual: "Walk-in",
 };
 
 export function GuestDetailPanel({ reservation, onClose }: Props) {
   const queryClient = useQueryClient();
   const { t } = useLang();
+  const payInputRef = useRef<HTMLInputElement>(null);
+  const [payAmount, setPayAmount] = useState("");
+  const [showPriceEdit, setShowPriceEdit] = useState(false);
   const [priceInput, setPriceInput] = useState(reservation.totalPrice?.toString() || "");
-  const [paidInput, setPaidInput] = useState(reservation.amountPaid?.toString() || "0");
   const [showExtend, setShowExtend] = useState(false);
-  const [extendCheckOut, setExtendCheckOut] = useState(
-    format(addDays(parseISO(reservation.checkOut), 1), "yyyy-MM-dd")
-  );
   const [extendNights, setExtendNights] = useState(1);
   const [extendError, setExtendError] = useState("");
+  const [mounted, setMounted] = useState(false);
+  const [isClosing, setIsClosing] = useState(false);
 
-  const [idInput, setIdInput] = useState("");
-  const [showIdEdit, setShowIdEdit] = useState(false);
+  useEffect(() => {
+    const raf = requestAnimationFrame(() => requestAnimationFrame(() => setMounted(true)));
+    return () => cancelAnimationFrame(raf);
+  }, []);
+
+  function handleClose() {
+    setIsClosing(true);
+    setTimeout(() => onClose(), 200);
+  }
 
   const { data: guestProfile } = useQuery<GuestProfile>({
     queryKey: ["guest-profile", reservation.guestId],
@@ -100,13 +87,14 @@ export function GuestDetailPanel({ reservation, onClose }: Props) {
   });
 
   useEffect(() => {
-    if (guestProfile?.idNumber) setIdInput(guestProfile.idNumber);
-  }, [guestProfile?.idNumber]);
-
-  useEffect(() => {
     setPriceInput(reservation.totalPrice?.toString() || "");
-    setPaidInput(reservation.amountPaid?.toString() || "0");
-  }, [reservation.totalPrice, reservation.amountPaid]);
+  }, [reservation.totalPrice]);
+
+  const invalidateAll = () => {
+    queryClient.invalidateQueries({ queryKey: ["reservations"] });
+    queryClient.invalidateQueries({ queryKey: ["assignments"] });
+    queryClient.invalidateQueries({ queryKey: ["stats"] });
+  };
 
   const updateMutation = useMutation({
     mutationFn: (data: Record<string, unknown>) =>
@@ -115,24 +103,7 @@ export function GuestDetailPanel({ reservation, onClose }: Props) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(data),
       }).then((r) => r.json()),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["reservations"] });
-      queryClient.invalidateQueries({ queryKey: ["assignments"] });
-      queryClient.invalidateQueries({ queryKey: ["stats"] });
-    },
-  });
-
-  const updateGuestMutation = useMutation({
-    mutationFn: (data: Record<string, unknown>) =>
-      fetch(`/api/guests/${reservation.guestId}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(data),
-      }).then((r) => r.json()),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["guest-profile", reservation.guestId] });
-      setShowIdEdit(false);
-    },
+    onSuccess: invalidateAll,
   });
 
   const extendMutation = useMutation({
@@ -146,508 +117,396 @@ export function GuestDetailPanel({ reservation, onClose }: Props) {
         if (!r.ok) throw new Error(json.error || "Failed to extend");
         return json;
       }),
-    onSuccess: (data) => {
-      setPriceInput(data.newTotalPrice?.toString() || priceInput);
-      setShowExtend(false);
-      setExtendError("");
-      queryClient.invalidateQueries({ queryKey: ["reservations"] });
-      queryClient.invalidateQueries({ queryKey: ["assignments"] });
-      queryClient.invalidateQueries({ queryKey: ["stats"] });
-    },
+    onSuccess: () => { setShowExtend(false); setExtendError(""); invalidateAll(); },
     onError: (err: Error) => setExtendError(err.message),
   });
 
-  const nights = Math.max(
-    1,
-    Math.round(
-      (new Date(reservation.checkOut).getTime() - new Date(reservation.checkIn).getTime()) /
-        86400000
-    )
-  );
-
+  const nights = Math.max(1, Math.round(
+    (new Date(reservation.checkOut).getTime() - new Date(reservation.checkIn).getTime()) / 86400000
+  ));
   const totalPrice = reservation.totalPrice ?? 0;
   const amountPaid = reservation.amountPaid ?? 0;
   const debt = Math.max(0, totalPrice - amountPaid);
-  const perNightRate = totalPrice > 0 && nights > 0 ? totalPrice / nights : 0;
+  const perNight = totalPrice > 0 && nights > 0 ? totalPrice / nights : 0;
+  const cur = reservation.currency || "VND";
 
-  function handleExtendNightsChange(n: number) {
-    const clamped = Math.max(1, n);
-    setExtendNights(clamped);
-    setExtendCheckOut(format(addDays(parseISO(reservation.checkOut), clamped), "yyyy-MM-dd"));
-  }
-  function handleExtendCheckOutChange(val: string) {
-    setExtendCheckOut(val);
-    const diff = Math.round(
-      (new Date(val).getTime() - new Date(reservation.checkOut).getTime()) / 86400000
-    );
-    setExtendNights(Math.max(1, diff));
-  }
-
-  const isConfirmed = reservation.status === "confirmed";
-  const isCheckedIn = reservation.status === "checked_in";
+  const isConfirmed  = reservation.status === "confirmed";
+  const isCheckedIn  = reservation.status === "checked_in";
   const isCheckedOut = reservation.status === "checked_out";
-  const isCancelled = reservation.status === "cancelled";
-  const isNoShow = reservation.status === "no_show";
-  const canExtend = !isCancelled && !isNoShow;
+  const isCancelled  = reservation.status === "cancelled";
+  const isNoShow     = reservation.status === "no_show";
+  const isActive     = isConfirmed || isCheckedIn;
 
-  const src = SOURCE_COLORS[reservation.source] || SOURCE_COLORS.manual;
-  const payConfig = PAYMENT_CONFIG[reservation.paymentStatus as keyof typeof PAYMENT_CONFIG] || PAYMENT_CONFIG.unpaid;
+  const cfg = STATUS_CFG[reservation.status as keyof typeof STATUS_CFG] ?? STATUS_CFG.confirmed;
+  const StatusIcon = cfg.Icon;
+  const extendDate = format(addDays(parseISO(reservation.checkOut), extendNights), "yyyy-MM-dd");
 
-  const initials = reservation.guestName
-    .split(" ")
-    .map((n) => n[0])
-    .slice(0, 2)
-    .join("")
-    .toUpperCase();
-
+  const initials = reservation.guestName.split(" ").map((n) => n[0]).slice(0, 2).join("").toUpperCase();
   const grandOwed = guestProfile?.totals.grand.owed ?? 0;
-  const grandTotal = guestProfile?.totals.grand.total ?? 0;
+
+  function handleAddPayment() {
+    const adding = parseFloat(payAmount);
+    if (isNaN(adding) || adding <= 0) return;
+    const newPaid = amountPaid + adding;
+    const ps = newPaid >= totalPrice && totalPrice > 0 ? "paid" : "partial";
+    updateMutation.mutate({ amountPaid: newPaid, paymentStatus: ps });
+    setPayAmount("");
+  }
+
+  function handleSavePrice() {
+    const price = parseFloat(priceInput);
+    if (isNaN(price) || price < 0) return;
+    const ps = amountPaid >= price && price > 0 ? "paid" : amountPaid > 0 ? "partial" : "unpaid";
+    updateMutation.mutate({ totalPrice: price, paymentStatus: ps });
+    setShowPriceEdit(false);
+  }
+
+  const isBusy = updateMutation.isPending || extendMutation.isPending;
 
   return (
     <>
       {/* Backdrop */}
       <div
-        className="fixed inset-0 bg-black/30 backdrop-blur-[2px] z-40"
-        onClick={onClose}
+        className={`fixed inset-0 z-40 transition-all duration-200 ${
+          isClosing || !mounted ? "bg-black/0 backdrop-blur-none" : "bg-black/40 backdrop-blur-[3px]"
+        }`}
+        onClick={handleClose}
       />
 
       {/* Panel */}
-      <div className="fixed left-16 top-0 bottom-0 w-full max-w-[420px] bg-white shadow-2xl z-50 flex flex-col overflow-hidden">
+      <div
+        className={`fixed left-16 top-0 bottom-0 z-50 flex flex-col bg-white shadow-2xl overflow-hidden
+          transition-transform duration-200 ease-out w-[460px]
+          ${isClosing || !mounted ? "-translate-x-full" : "translate-x-0"}`}
+      >
+        {/* Top loading bar */}
+        {isBusy && (
+          <div className="absolute top-0 left-0 right-0 h-0.5 z-10 overflow-hidden">
+            <div className={`h-full ${cfg.bg} opacity-60`}
+              style={{ animation: "slide 1.2s ease-in-out infinite" }}
+            />
+          </div>
+        )}
 
-        {/* ── HEADER ── */}
-        <div className="px-5 pt-5 pb-4 border-b border-slate-100 bg-white">
-          <div className="flex items-start justify-between mb-3">
-            <div className="flex items-center gap-3">
-              <div className={`w-11 h-11 rounded-full flex items-center justify-center text-sm font-bold text-white shrink-0 ${
-                isCheckedIn ? "bg-emerald-600" : isCheckedOut ? "bg-slate-500" : "bg-slate-900"
-              }`}>
+        {/* ── STATUS BANNER ── */}
+        <div className={`${cfg.bg} shrink-0 px-6 py-4 flex items-center justify-between`}
+          style={{ background: `linear-gradient(135deg, ${cfg.color} 0%, ${cfg.color}dd 100%)` }}
+        >
+          <div className="flex items-center gap-3">
+            <div className="w-8 h-8 rounded-full bg-white/20 flex items-center justify-center">
+              <StatusIcon size={15} className="text-white" />
+            </div>
+            <span className="text-white font-bold text-base tracking-wide">{cfg.label}</span>
+          </div>
+          <button
+            onClick={handleClose}
+            className="w-8 h-8 rounded-full hover:bg-white/20 flex items-center justify-center text-white/70 hover:text-white transition-colors"
+          >
+            <X size={17} />
+          </button>
+        </div>
+
+        {/* Scrollable content */}
+        <div className="flex-1 overflow-y-auto">
+
+          {/* ── GUEST IDENTITY ── */}
+          <div className="px-6 pt-6 pb-5 border-b border-stone-100">
+            <div className="flex items-center gap-4">
+              {/* Avatar */}
+              <div
+                className="w-14 h-14 rounded-2xl flex items-center justify-center text-base font-bold text-white shrink-0"
+                style={{ background: `linear-gradient(135deg, ${cfg.color}cc, ${cfg.color})` }}
+              >
                 {initials}
               </div>
-              <div>
-                <h2 className="text-base font-bold text-slate-900 leading-tight">
+
+              <div className="min-w-0 flex-1">
+                {/* Serif guest name — hotel register feel */}
+                <h2 className="font-serif text-[22px] font-bold text-stone-900 leading-tight tracking-tight truncate">
                   {reservation.guestName}
                 </h2>
-                <div className="flex items-center gap-1.5 mt-1 flex-wrap">
-                  <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold ${src.bg} ${src.text}`}>
-                    <span className={`w-1.5 h-1.5 rounded-full ${src.dot}`} />
-                    {src.label}
-                  </span>
-                  <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold ${payConfig.bg} ${payConfig.text}`}>
-                    <span className={`w-1.5 h-1.5 rounded-full ${payConfig.dot}`} />
-                    {payConfig.label}
-                  </span>
-                  {reservation.externalId && (
-                    <span className="text-[10px] text-slate-400 font-mono">#{reservation.externalId}</span>
+                <div className="flex items-center gap-2 mt-1.5 flex-wrap">
+                  {reservation.bedId && (
+                    <span className="inline-flex items-center gap-1 text-xs font-semibold text-stone-500 bg-stone-100 rounded-md px-2 py-0.5">
+                      {reservation.bedId}
+                    </span>
                   )}
+                  <span className="text-xs text-stone-400">
+                    {format(new Date(reservation.checkIn + "T12:00:00"), "d MMM")}
+                    {" — "}
+                    {format(new Date(reservation.checkOut + "T12:00:00"), "d MMM")}
+                  </span>
+                  <span className="text-stone-300 text-xs">·</span>
+                  <span className="text-xs text-stone-400">{nights} night{nights !== 1 ? "s" : ""}</span>
+                  <span className="text-stone-300 text-xs">·</span>
+                  <span className="text-xs text-stone-400">{SOURCE_LABEL[reservation.source] || reservation.source}</span>
                 </div>
               </div>
             </div>
-            <button
-              onClick={onClose}
-              className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400 transition-colors shrink-0 mt-0.5"
-            >
-              <X size={18} />
-            </button>
           </div>
 
-          {/* Key info strip */}
-          <div className="grid grid-cols-4 gap-1.5">
-            <div className="flex flex-col items-center justify-center bg-slate-50 rounded-xl px-2 py-2.5 border border-slate-200">
-              <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wide">Check-in</span>
-              <span className="text-xs font-bold text-slate-800 mt-0.5">
-                {format(new Date(reservation.checkIn + "T12:00:00"), "MMM d")}
-              </span>
-            </div>
-            <div className="flex flex-col items-center justify-center bg-slate-50 rounded-xl px-2 py-2.5 border border-slate-200">
-              <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wide">Nights</span>
-              <span className="text-xs font-bold text-slate-800 mt-0.5">{nights}</span>
-            </div>
-            <div className="flex flex-col items-center justify-center bg-slate-50 rounded-xl px-2 py-2.5 border border-slate-200">
-              <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wide">Guests</span>
-              <span className="text-xs font-bold text-slate-800 mt-0.5">{reservation.numGuests}</span>
-            </div>
-            <div className={`flex flex-col items-center justify-center rounded-xl px-2 py-2.5 border ${
-              debt > 0 && !isCancelled && !isCheckedOut
-                ? "bg-red-50 border-red-200"
-                : "bg-slate-50 border-slate-200"
-            }`}>
-              <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wide">Owed</span>
-              <span className={`text-xs font-bold mt-0.5 ${
-                debt > 0 && !isCancelled && !isCheckedOut ? "text-red-700" : "text-emerald-600"
-              }`}>
-                {debt > 0 && !isCancelled && !isCheckedOut
-                  ? `${reservation.currency || "EUR"} ${debt.toFixed(0)}`
-                  : "Paid"}
-              </span>
-            </div>
-          </div>
-        </div>
-
-        {/* Scrollable body */}
-        <div className="flex-1 overflow-y-auto divide-y divide-slate-100">
-
-          {/* ── CHECK-IN / CHECK-OUT ACTIONS ── */}
-          <div className="px-4 py-4">
-            <SectionLabel>Status</SectionLabel>
-
-            {/* Status pill */}
-            <div className={`flex items-center gap-2 px-3 py-2.5 rounded-xl mb-3 ${
-              isCheckedIn ? "bg-emerald-50 border border-emerald-200"
-              : isCheckedOut ? "bg-slate-100 border border-slate-200"
-              : isCancelled || isNoShow ? "bg-red-50 border border-red-200"
-              : "bg-indigo-50 border border-indigo-200"
-            }`}>
-              {isCheckedIn ? <CheckCircle2 size={14} className="text-emerald-600 shrink-0" />
-              : isCheckedOut ? <LogOut size={14} className="text-slate-500 shrink-0" />
-              : isCancelled ? <XCircle size={14} className="text-red-500 shrink-0" />
-              : isNoShow ? <MinusCircle size={14} className="text-red-500 shrink-0" />
-              : <Clock size={14} className="text-indigo-500 shrink-0" />}
-              <span className={`text-sm font-semibold ${
-                isCheckedIn ? "text-emerald-700"
-                : isCheckedOut ? "text-slate-600"
-                : isCancelled ? "text-red-700"
-                : isNoShow ? "text-red-600"
-                : "text-indigo-700"
-              }`}>
-                {isCheckedIn ? t("grid_checked_in")
-                : isCheckedOut ? t("grid_checked_out")
-                : isCancelled ? t("panel_cancelled")
-                : isNoShow ? t("grid_no_show")
-                : t("panel_awaiting")}
-              </span>
-              <span className="ml-auto text-[10px] font-mono text-slate-400">
-                {nights}n · {reservation.numGuests}g
-              </span>
-            </div>
-
-            {/* Primary action button */}
-            {!isCancelled && !isNoShow && (
-              <div className="space-y-2">
-                {isConfirmed && (
-                  <button
-                    onClick={() => updateMutation.mutate({ status: "checked_in" })}
-                    disabled={updateMutation.isPending}
-                    className="w-full flex items-center justify-center gap-2 py-3 bg-emerald-600 text-white rounded-xl text-sm font-bold hover:bg-emerald-700 active:scale-[0.98] transition-all shadow-sm disabled:opacity-60"
-                  >
-                    <LogIn size={16} />
-                    {t("panel_checkin_btn")}
-                  </button>
-                )}
-                {isCheckedIn && (
-                  <button
-                    onClick={() => updateMutation.mutate({ status: "checked_out" })}
-                    disabled={updateMutation.isPending}
-                    className="w-full flex items-center justify-center gap-2 py-3 bg-slate-800 text-white rounded-xl text-sm font-bold hover:bg-slate-900 active:scale-[0.98] transition-all shadow-sm disabled:opacity-60"
-                  >
-                    <LogOut size={16} />
-                    {t("panel_checkout_btn")}
-                  </button>
-                )}
-                {(isConfirmed || isCheckedIn) && (
-                  <div className="grid grid-cols-2 gap-2">
-                    {isConfirmed && (
-                      <button
-                        onClick={() => updateMutation.mutate({ status: "no_show" })}
-                        disabled={updateMutation.isPending}
-                        className="flex items-center justify-center gap-1.5 py-2.5 bg-amber-50 text-amber-700 rounded-xl text-xs font-semibold hover:bg-amber-100 border border-amber-200 transition-colors"
-                      >
-                        <MinusCircle size={13} />
-                        {t("panel_no_show")}
-                      </button>
-                    )}
-                    <button
-                      onClick={() => updateMutation.mutate({ status: "cancelled" })}
-                      disabled={updateMutation.isPending}
-                      className={`flex items-center justify-center gap-1.5 py-2.5 bg-red-50 text-red-600 rounded-xl text-xs font-semibold hover:bg-red-100 border border-red-200 transition-colors ${isCheckedIn ? "col-span-2" : ""}`}
-                    >
-                      <XCircle size={13} />
-                      {t("panel_cancel")}
-                    </button>
-                  </div>
-                )}
-              </div>
+          {/* ── PRIMARY ACTION ── */}
+          <div className="px-6 py-5">
+            {isConfirmed && (
+              <button
+                onClick={() => updateMutation.mutate({ status: "checked_in" })}
+                disabled={isBusy}
+                className="w-full py-4 rounded-2xl text-white text-base font-bold tracking-wide flex items-center justify-center gap-3 active:scale-[0.98] transition-all duration-150 disabled:opacity-50"
+                style={{
+                  background: "linear-gradient(135deg, #059669, #10b981)",
+                  boxShadow: "0 4px 24px rgba(5,150,105,0.35)",
+                }}
+              >
+                <LogIn size={20} strokeWidth={2.5} />
+                Check In
+              </button>
+            )}
+            {isCheckedIn && (
+              <button
+                onClick={() => updateMutation.mutate({ status: "checked_out" })}
+                disabled={isBusy}
+                className="w-full py-4 rounded-2xl text-white text-base font-bold tracking-wide flex items-center justify-center gap-3 active:scale-[0.98] transition-all duration-150 disabled:opacity-50"
+                style={{
+                  background: "linear-gradient(135deg, #1c1917, #292524)",
+                  boxShadow: "0 4px 24px rgba(28,25,23,0.3)",
+                }}
+              >
+                <LogOut size={20} strokeWidth={2.5} />
+                Check Out
+              </button>
             )}
             {isCheckedOut && (
               <button
                 onClick={() => updateMutation.mutate({ status: "confirmed" })}
-                disabled={updateMutation.isPending}
-                className="w-full flex items-center justify-center gap-2 py-2.5 bg-slate-100 text-slate-600 rounded-xl text-xs font-semibold hover:bg-slate-200 transition-colors border border-slate-200"
+                disabled={isBusy}
+                className="w-full py-3 rounded-xl text-stone-500 text-sm font-semibold bg-stone-100 hover:bg-stone-200 flex items-center justify-center gap-2 transition-colors"
               >
-                {t("panel_undo_checkout")}
+                <Undo2 size={15} />
+                Undo Checkout
               </button>
             )}
           </div>
 
-          {/* ── PAYMENT ── */}
-          <div className="px-4 py-4">
-            <SectionLabel icon={<CreditCard size={11} />}>Room Payment</SectionLabel>
+          {/* ── PAYMENT CARD ── */}
+          <div className="px-6 pb-5">
+            <div className="rounded-2xl overflow-hidden border border-stone-200 bg-stone-50">
 
-            {/* Outstanding balance inline alert */}
-            {debt > 0 && !isCheckedOut && !isCancelled && (
-              <div className="flex items-center gap-2 px-3 py-2 bg-red-50 border border-red-200 rounded-xl mb-3">
-                <AlertCircle size={13} className="text-red-500 shrink-0" />
-                <span className="text-xs font-semibold text-red-700">
-                  {reservation.currency || "EUR"} {debt.toFixed(2)} outstanding
-                </span>
-                {amountPaid > 0 && (
-                  <span className="text-[10px] text-red-500 ml-auto">
-                    {amountPaid.toFixed(2)} / {totalPrice.toFixed(2)} paid
-                  </span>
-                )}
-              </div>
-            )}
-
-            <div className="space-y-3">
-              <div className="grid grid-cols-2 gap-2">
-                <div>
-                  <label className="block text-[11px] font-semibold text-slate-500 mb-1.5">
-                    {t("panel_total_price")} ({reservation.currency || "EUR"})
-                  </label>
-                  <input
-                    type="number"
-                    min={0}
-                    step={0.01}
-                    value={priceInput}
-                    onChange={(e) => setPriceInput(e.target.value)}
-                    className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-slate-900/20 bg-slate-50 focus:bg-white transition-colors"
-                    placeholder="0.00"
-                  />
-                </div>
-                <div>
-                  <label className="block text-[11px] font-semibold text-slate-500 mb-1.5">
-                    {t("panel_amount_paid")} ({reservation.currency || "EUR"})
-                  </label>
-                  <input
-                    type="number"
-                    min={0}
-                    step={0.01}
-                    value={paidInput}
-                    onChange={(e) => setPaidInput(e.target.value)}
-                    className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-slate-900/20 bg-slate-50 focus:bg-white transition-colors"
-                    placeholder="0.00"
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-2">
-                <button
-                  onClick={() => {
-                    const price = parseFloat(priceInput);
-                    const paid = parseFloat(paidInput);
-                    const updates: Record<string, unknown> = {};
-                    if (!isNaN(price)) updates.totalPrice = price;
-                    if (!isNaN(paid)) {
-                      updates.amountPaid = paid;
-                      const total = !isNaN(price) ? price : totalPrice;
-                      updates.paymentStatus =
-                        paid <= 0 ? "unpaid" : paid >= total && total > 0 ? "paid" : "partial";
-                    }
-                    if (Object.keys(updates).length > 0) updateMutation.mutate(updates);
-                  }}
-                  disabled={updateMutation.isPending}
-                  className="flex items-center justify-center gap-2 py-2.5 bg-slate-900 text-white rounded-xl text-sm font-bold hover:bg-slate-800 active:scale-[0.98] transition-all shadow-sm disabled:opacity-60"
-                >
-                  {updateMutation.isPending ? (
-                    <div className="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin" />
-                  ) : (
-                    <CreditCard size={14} />
-                  )}
-                  {updateMutation.isPending ? t("common_saving") : t("panel_save_payment")}
-                </button>
-
-                {reservation.paymentStatus !== "paid" && totalPrice > 0 && (
-                  <button
-                    onClick={() => {
-                      setPaidInput(totalPrice.toFixed(2));
-                      updateMutation.mutate({ paymentStatus: "paid", amountPaid: totalPrice });
-                    }}
-                    disabled={updateMutation.isPending}
-                    className="flex items-center justify-center gap-2 py-2.5 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-xl text-sm font-semibold hover:bg-emerald-100 transition-colors"
-                  >
-                    <CheckCircle2 size={14} />
-                    {t("panel_mark_paid")}
-                  </button>
-                )}
-              </div>
-            </div>
-          </div>
-
-          {/* ── GUEST INFO ── */}
-          <div className="px-4 py-4">
-            <SectionLabel icon={<User size={11} />}>Guest Info</SectionLabel>
-
-            <div className="space-y-2">
-              {/* ID / Passport + Stay details in one compact grid */}
-              <div className="grid grid-cols-2 gap-2">
-                <div className="col-span-2 flex items-center gap-3 px-3 py-2.5 bg-slate-50 rounded-xl border border-slate-200">
-                  <FileText size={13} className="text-slate-400 shrink-0" />
-                  <div className="flex-1 min-w-0">
-                    <div className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider">ID / Passport</div>
-                    {showIdEdit ? (
-                      <div className="flex items-center gap-2 mt-1">
-                        <input
-                          type="text"
-                          value={idInput}
-                          onChange={(e) => setIdInput(e.target.value)}
-                          placeholder="Passport or ID number"
-                          className="flex-1 min-w-0 border border-slate-200 rounded-lg px-2.5 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-slate-900/10 bg-white"
-                          autoFocus
-                          onKeyDown={(e) => {
-                            if (e.key === "Enter") updateGuestMutation.mutate({ idNumber: idInput });
-                            if (e.key === "Escape") setShowIdEdit(false);
-                          }}
-                        />
+              {totalPrice > 0 ? (
+                <>
+                  {/* Receipt rows */}
+                  <div className="px-5 pt-4 pb-3 space-y-2.5">
+                    {/* Header */}
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="text-[10px] font-bold text-stone-400 uppercase tracking-widest">Payment</span>
+                      {!showPriceEdit && (
                         <button
-                          onClick={() => updateGuestMutation.mutate({ idNumber: idInput })}
-                          disabled={updateGuestMutation.isPending}
-                          className="px-2.5 py-1 bg-slate-900 text-white text-xs font-semibold rounded-lg hover:bg-slate-800 disabled:opacity-50"
+                          onClick={() => setShowPriceEdit(true)}
+                          className="text-[10px] text-stone-400 hover:text-stone-600 transition-colors underline underline-offset-2"
                         >
-                          Save
+                          edit price
+                        </button>
+                      )}
+                    </div>
+
+                    <div className="flex justify-between items-baseline">
+                      <span className="text-sm text-stone-500">Total</span>
+                      <span className="text-sm font-semibold text-stone-700 tabular-nums">
+                        {cur} {totalPrice.toLocaleString()}
+                      </span>
+                    </div>
+
+                    {amountPaid > 0 && (
+                      <div className="flex justify-between items-baseline">
+                        <span className="text-sm text-stone-500">Paid</span>
+                        <span className="text-sm font-semibold text-emerald-600 tabular-nums">
+                          − {cur} {amountPaid.toLocaleString()}
+                        </span>
+                      </div>
+                    )}
+
+                    {/* Divider */}
+                    <div className="border-t border-stone-200 pt-2.5">
+                      <div className="flex justify-between items-center">
+                        <span className="text-sm font-bold text-stone-700">
+                          {debt > 0 ? "Owed" : "Balance"}
+                        </span>
+                        <div className="flex items-center gap-3">
+                          <span
+                            className="text-xl font-extrabold tabular-nums tracking-tight"
+                            style={{ color: debt > 0 && isActive ? "#dc2626" : "#059669" }}
+                          >
+                            {debt > 0 && isActive
+                              ? `${cur} ${debt.toLocaleString()}`
+                              : "Paid ✓"
+                            }
+                          </span>
+                          {debt > 0 && isActive && (
+                            <button
+                              onClick={() => updateMutation.mutate({ amountPaid: totalPrice, paymentStatus: "paid" })}
+                              disabled={isBusy}
+                              className="text-xs font-bold px-3 py-1.5 rounded-lg text-white transition-colors disabled:opacity-50"
+                              style={{ background: "#059669" }}
+                            >
+                              Paid all
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Quick payment input */}
+                  {debt > 0 && isActive && (
+                    <div className="px-5 pb-4 pt-1">
+                      <div className="flex gap-2">
+                        <div className="relative flex-1">
+                          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs font-semibold text-stone-400">
+                            {cur}
+                          </span>
+                          <input
+                            ref={payInputRef}
+                            type="number"
+                            min={0}
+                            value={payAmount}
+                            onChange={(e) => setPayAmount(e.target.value)}
+                            onKeyDown={(e) => e.key === "Enter" && handleAddPayment()}
+                            placeholder="Amount received"
+                            className="w-full pl-12 pr-4 py-3 rounded-xl border border-stone-200 bg-white text-sm font-semibold text-stone-800 placeholder:text-stone-300 placeholder:font-normal focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-400 transition-colors"
+                          />
+                        </div>
+                        <button
+                          onClick={handleAddPayment}
+                          disabled={isBusy || !payAmount}
+                          className="px-5 py-3 rounded-xl text-white text-sm font-bold active:scale-[0.97] transition-all disabled:opacity-40"
+                          style={{ background: "#059669" }}
+                        >
+                          Add
                         </button>
                       </div>
-                    ) : (
-                      <button
-                        onClick={() => setShowIdEdit(true)}
-                        className="text-sm text-slate-700 hover:text-indigo-600 transition-colors text-left w-full mt-0.5"
-                      >
-                        {guestProfile?.idNumber || <span className="text-slate-400 italic text-xs">Tap to add ID number</span>}
-                      </button>
-                    )}
-                  </div>
-                </div>
+                    </div>
+                  )}
 
-                <div className="px-3 py-2.5 bg-slate-50 rounded-xl border border-slate-200">
-                  <div className="text-[10px] font-semibold text-slate-400 uppercase">Check-in</div>
-                  <div className="text-xs font-semibold text-slate-700 mt-0.5">
-                    {format(new Date(reservation.checkIn + "T12:00:00"), "EEE, MMM d")}
+                  {/* Edit price form */}
+                  {showPriceEdit && (
+                    <div className="px-5 pb-4 pt-1 flex gap-2 items-end border-t border-stone-200">
+                      <div className="flex-1">
+                        <label className="block text-[10px] font-bold text-stone-400 uppercase tracking-wider mb-1.5">
+                          Total Price ({cur})
+                        </label>
+                        <input
+                          type="number"
+                          min={0}
+                          value={priceInput}
+                          onChange={(e) => setPriceInput(e.target.value)}
+                          onKeyDown={(e) => e.key === "Enter" && handleSavePrice()}
+                          className="w-full border border-stone-200 rounded-xl px-3 py-2.5 text-sm font-semibold text-stone-800 focus:outline-none focus:ring-2 focus:ring-stone-800/10 bg-white"
+                        />
+                      </div>
+                      <button
+                        onClick={handleSavePrice}
+                        className="px-4 py-2.5 bg-stone-800 text-white text-sm font-bold rounded-xl hover:bg-stone-900 transition-colors"
+                      >
+                        Save
+                      </button>
+                      <button
+                        onClick={() => setShowPriceEdit(false)}
+                        className="px-3 py-2.5 text-sm text-stone-400 hover:text-stone-600 transition-colors"
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  )}
+                </>
+              ) : (
+                // No price set
+                showPriceEdit ? (
+                  <div className="px-5 py-4 flex gap-2 items-end">
+                    <div className="flex-1">
+                      <label className="block text-[10px] font-bold text-stone-400 uppercase tracking-wider mb-1.5">
+                        Total Price ({cur})
+                      </label>
+                      <input
+                        type="number"
+                        min={0}
+                        value={priceInput}
+                        onChange={(e) => setPriceInput(e.target.value)}
+                        onKeyDown={(e) => e.key === "Enter" && handleSavePrice()}
+                        autoFocus
+                        placeholder="0"
+                        className="w-full border border-stone-200 rounded-xl px-3 py-2.5 text-sm font-semibold text-stone-800 focus:outline-none focus:ring-2 focus:ring-stone-800/10 bg-white"
+                      />
+                    </div>
+                    <button
+                      onClick={handleSavePrice}
+                      className="px-4 py-2.5 bg-stone-800 text-white text-sm font-bold rounded-xl hover:bg-stone-900 transition-colors"
+                    >
+                      Save
+                    </button>
                   </div>
-                </div>
-                <div className="px-3 py-2.5 bg-slate-50 rounded-xl border border-slate-200">
-                  <div className="text-[10px] font-semibold text-slate-400 uppercase">Check-out</div>
-                  <div className="text-xs font-semibold text-slate-700 mt-0.5">
-                    {format(new Date(reservation.checkOut + "T12:00:00"), "EEE, MMM d")}
-                  </div>
-                </div>
-                <div className="px-3 py-2.5 bg-slate-50 rounded-xl border border-slate-200">
-                  <div className="text-[10px] font-semibold text-slate-400 uppercase">Duration</div>
-                  <div className="text-xs font-semibold text-slate-700 mt-0.5">{nights} night{nights !== 1 ? "s" : ""}</div>
-                </div>
-                <div className="px-3 py-2.5 bg-slate-50 rounded-xl border border-slate-200">
-                  <div className="text-[10px] font-semibold text-slate-400 uppercase">Guests</div>
-                  <div className="text-xs font-semibold text-slate-700 mt-0.5">{reservation.numGuests} guest{reservation.numGuests !== 1 ? "s" : ""}</div>
-                </div>
-                {guestProfile?.nationality && (
-                  <div className="px-3 py-2.5 bg-slate-50 rounded-xl border border-slate-200 col-span-2">
-                    <div className="text-[10px] font-semibold text-slate-400 uppercase">Nationality</div>
-                    <div className="text-xs font-semibold text-slate-700 mt-0.5">{guestProfile.nationality}</div>
-                  </div>
-                )}
-              </div>
+                ) : (
+                  <button
+                    onClick={() => setShowPriceEdit(true)}
+                    className="w-full py-4 text-sm text-stone-400 hover:text-stone-600 transition-colors text-center"
+                  >
+                    + Set room price
+                  </button>
+                )
+              )}
             </div>
+
+            {/* Grand balance across services */}
+            {guestProfile?.totals && grandOwed > 0 && grandOwed !== debt && (
+              <div className="mt-2.5 flex items-center gap-2.5 px-4 py-3 bg-amber-50 rounded-xl border border-amber-200">
+                <AlertCircle size={14} className="text-amber-500 shrink-0" />
+                <span className="text-xs font-semibold text-amber-700">
+                  Total balance incl. tours & laundry: {cur} {grandOwed.toLocaleString()}
+                </span>
+              </div>
+            )}
           </div>
 
-          {/* ── ACCOUNT SUMMARY (Room + Tours + Laundry) ── */}
-          {guestProfile?.totals && grandTotal > 0 && (
-            <div className="px-4 py-4">
-              <SectionLabel icon={<Wallet size={11} />}>Account Summary</SectionLabel>
-
-              {/* Grand total card */}
-              <div className={`rounded-xl p-3 mb-3 ${
-                grandOwed > 0 ? "bg-red-50 border border-red-200" : "bg-emerald-50 border border-emerald-200"
-              }`}>
-                <div className="flex items-center justify-between">
-                  <div>
-                    <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-400 mb-0.5">
-                      Total Balance
-                    </div>
-                    <div className={`text-xl font-bold ${grandOwed > 0 ? "text-red-700" : "text-emerald-600"}`}>
-                      {grandOwed > 0
-                        ? `${reservation.currency || "VND"} ${grandOwed.toLocaleString()} owed`
-                        : "Fully Paid"}
-                    </div>
-                  </div>
-                  {grandOwed > 0
-                    ? <AlertCircle size={22} className="text-red-300" />
-                    : <CheckCircle2 size={22} className="text-emerald-400" />}
-                </div>
-                <div className="mt-1.5 pt-1.5 border-t border-black/5 text-xs text-slate-500 flex gap-3">
-                  <span>Total <span className="font-semibold text-slate-700">{reservation.currency || "VND"} {guestProfile.totals.grand.total.toLocaleString()}</span></span>
-                  <span>Paid <span className="font-semibold text-emerald-600">{reservation.currency || "VND"} {guestProfile.totals.grand.paid.toLocaleString()}</span></span>
-                </div>
-              </div>
-
-              {/* Line items */}
-              <div className="space-y-1">
-                <TotalRow icon={<BedDouble size={13} className="text-indigo-500" />} label="Room" total={guestProfile.totals.room.total} paid={guestProfile.totals.room.paid} currency={reservation.currency || "VND"} />
-                <TotalRow icon={<MapPin size={13} className="text-orange-500" />} label="Tours" total={guestProfile.totals.tours.total} paid={guestProfile.totals.tours.paid} currency={reservation.currency || "VND"} />
-                <TotalRow icon={<Shirt size={13} className="text-blue-500" />} label="Laundry" total={guestProfile.totals.laundry.total} paid={guestProfile.totals.laundry.paid} currency={reservation.currency || "VND"} />
-              </div>
-            </div>
-          )}
-
           {/* ── EXTEND STAY ── */}
-          {canExtend && (
-            <div className="px-4 py-4">
-              <SectionLabel>Extend Stay</SectionLabel>
-
+          {!isCancelled && !isNoShow && (
+            <div className="px-6 pb-5">
               <button
                 onClick={() => { setShowExtend(!showExtend); setExtendError(""); }}
-                className={`w-full flex items-center justify-between gap-3 px-4 py-3 rounded-xl border transition-all ${
+                className={`w-full flex items-center justify-between px-5 py-3.5 rounded-2xl border text-sm font-semibold transition-all duration-150 ${
                   showExtend
-                    ? "bg-indigo-600 border-indigo-600 text-white shadow-md"
-                    : "bg-indigo-50 border-indigo-200 text-indigo-700 hover:bg-indigo-100"
+                    ? "bg-blue-600 border-blue-600 text-white"
+                    : "bg-white border-stone-200 text-stone-600 hover:border-stone-300 hover:bg-stone-50"
                 }`}
               >
                 <div className="flex items-center gap-2.5">
-                  <CalendarPlus size={15} />
-                  <span className="text-sm font-semibold">
-                    {showExtend ? "Cancel Extension" : "Extend Stay"}
-                  </span>
+                  <CalendarPlus size={16} />
+                  Extend Stay
                 </div>
                 <div className="flex items-center gap-2">
                   {!showExtend && (
-                    <span className="text-xs opacity-70 font-medium">
-                      Until {format(parseISO(reservation.checkOut), "MMM d")}
+                    <span className="text-xs text-stone-400">
+                      until {format(parseISO(reservation.checkOut), "d MMM")}
                     </span>
                   )}
-                  {showExtend ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                  <ChevronDown size={15} className={`transition-transform ${showExtend ? "rotate-180 text-white/70" : "text-stone-400"}`} />
                 </div>
               </button>
 
               {showExtend && (
-                <div className="mt-3 space-y-3">
-                  <div className="grid grid-cols-2 gap-2">
-                    <div className="bg-slate-50 rounded-xl p-3 border border-slate-200">
-                      <div className="text-[10px] font-semibold text-slate-400 uppercase mb-1">Current check-out</div>
-                      <div className="text-sm font-bold text-slate-700">
-                        {format(parseISO(reservation.checkOut), "EEE, MMM d")}
-                      </div>
+                <div className="mt-2 p-4 bg-blue-50 rounded-2xl border border-blue-100 space-y-4">
+                  {/* Night selector */}
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2 text-sm text-stone-500">
+                      <Moon size={14} className="text-blue-400" />
+                      Extra nights
                     </div>
-                    <div className="bg-indigo-50 rounded-xl p-3 border border-indigo-200">
-                      <div className="text-[10px] font-semibold text-indigo-500 uppercase mb-1">New check-out</div>
-                      <input
-                        type="date"
-                        value={extendCheckOut}
-                        min={format(addDays(parseISO(reservation.checkOut), 1), "yyyy-MM-dd")}
-                        onChange={(e) => handleExtendCheckOutChange(e.target.value)}
-                        className="w-full text-sm font-bold text-indigo-700 bg-transparent focus:outline-none"
-                      />
-                    </div>
-                  </div>
-
-                  <div className="flex items-center gap-2">
-                    <Moon size={13} className="text-slate-400" />
-                    <span className="text-xs font-semibold text-slate-500">Add nights:</span>
-                    <div className="flex gap-1.5 ml-auto">
-                      {[1, 2, 3, 4, 5, 7].map((n) => (
+                    <div className="flex gap-1.5">
+                      {[1, 2, 3, 5, 7].map((n) => (
                         <button
                           key={n}
-                          type="button"
-                          onClick={() => handleExtendNightsChange(n)}
-                          className={`w-8 h-8 rounded-lg text-xs font-bold transition-colors ${
+                          onClick={() => setExtendNights(n)}
+                          className={`w-9 h-9 rounded-xl text-sm font-bold transition-all ${
                             extendNights === n
-                              ? "bg-indigo-600 text-white shadow-sm"
-                              : "bg-slate-100 text-slate-600 hover:bg-indigo-50 hover:text-indigo-700"
+                              ? "bg-blue-600 text-white shadow-sm"
+                              : "bg-white text-stone-600 border border-stone-200 hover:border-blue-300"
                           }`}
                         >
                           {n}
@@ -656,114 +515,71 @@ export function GuestDetailPanel({ reservation, onClose }: Props) {
                     </div>
                   </div>
 
-                  <div className="bg-slate-50 rounded-xl p-3 border border-slate-200 space-y-1.5 text-xs">
-                    {perNightRate > 0 && (
-                      <div className="flex justify-between text-slate-500">
-                        <span>Rate per night</span>
-                        <span className="font-semibold text-slate-700">{reservation.currency || "EUR"} {perNightRate.toFixed(2)}</span>
-                      </div>
-                    )}
-                    <div className="flex justify-between text-slate-500">
-                      <span>Extra nights</span>
-                      <span className="font-semibold text-slate-700">× {extendNights}</span>
-                    </div>
-                    {perNightRate > 0 && (
-                      <>
-                        <div className="flex justify-between font-bold text-slate-800 pt-1 border-t border-slate-200 text-sm">
-                          <span>Additional charge</span>
-                          <span className="text-indigo-600">{reservation.currency || "EUR"} {(perNightRate * extendNights).toFixed(2)}</span>
-                        </div>
-                        <div className="flex justify-between text-slate-500">
-                          <span>New balance owed</span>
-                          <span className="font-bold text-red-600">{reservation.currency || "EUR"} {Math.max(0, totalPrice + perNightRate * extendNights - amountPaid).toFixed(2)}</span>
-                        </div>
-                      </>
+                  {/* Summary */}
+                  <div className="text-sm text-center text-stone-500">
+                    New checkout:{" "}
+                    <span className="font-bold text-stone-800">
+                      {format(addDays(parseISO(reservation.checkOut), extendNights), "EEE, d MMM")}
+                    </span>
+                    {perNight > 0 && (
+                      <span className="text-stone-400 ml-2">
+                        +{cur} {(perNight * extendNights).toLocaleString()}
+                      </span>
                     )}
                   </div>
 
                   {extendError && (
-                    <div className="flex items-start gap-2 px-3 py-2.5 bg-red-50 rounded-xl border border-red-200 text-xs text-red-700 font-medium">
-                      <AlertCircle size={13} className="shrink-0 mt-0.5" />
+                    <div className="flex items-center gap-2 text-xs text-red-600 font-medium bg-red-50 rounded-lg px-3 py-2 border border-red-100">
+                      <AlertCircle size={12} className="shrink-0" />
                       {extendError}
                     </div>
                   )}
 
                   <button
-                    onClick={() => {
-                      setExtendError("");
-                      extendMutation.mutate({ reservationId: reservation.id, newCheckOut: extendCheckOut });
-                    }}
+                    onClick={() => { setExtendError(""); extendMutation.mutate({ reservationId: reservation.id, newCheckOut: extendDate }); }}
                     disabled={extendMutation.isPending}
-                    className="w-full flex items-center justify-center gap-2 py-3 bg-indigo-600 text-white rounded-xl text-sm font-bold hover:bg-indigo-700 active:scale-[0.98] transition-all shadow-sm disabled:opacity-60"
+                    className="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-sm font-bold active:scale-[0.98] transition-all disabled:opacity-60 shadow-sm shadow-blue-200"
                   >
-                    {extendMutation.isPending ? (
-                      <div className="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin" />
-                    ) : (
-                      <CalendarPlus size={15} />
-                    )}
-                    {extendMutation.isPending
-                      ? "Extending…"
-                      : `Confirm — Add ${extendNights} Night${extendNights !== 1 ? "s" : ""}${perNightRate > 0 ? ` (+${reservation.currency || "EUR"} ${(perNightRate * extendNights).toFixed(2)})` : ""}`}
+                    {extendMutation.isPending ? "Extending…" : `Confirm — Add ${extendNights} Night${extendNights !== 1 ? "s" : ""}`}
                   </button>
                 </div>
               )}
             </div>
           )}
-
         </div>
 
-        {/* Footer saving indicator */}
-        {(updateMutation.isPending || extendMutation.isPending) && (
-          <div className="px-5 py-3 border-t border-slate-100 bg-slate-50 flex items-center gap-2">
-            <div className="w-3.5 h-3.5 border-2 border-slate-400 border-t-transparent rounded-full animate-spin" />
-            <span className="text-xs text-slate-500 font-medium">Saving…</span>
+        {/* ── FOOTER: NO SHOW / CANCEL ── always visible for active reservations */}
+        {isActive && (
+          <div className="shrink-0 px-6 py-4 bg-stone-50 border-t border-stone-100 flex gap-3">
+            {isConfirmed && (
+              <button
+                onClick={() => updateMutation.mutate({ status: "no_show" })}
+                disabled={isBusy}
+                className="flex-1 flex items-center justify-center gap-2 py-3 rounded-xl text-sm font-semibold text-amber-700 bg-amber-50 hover:bg-amber-100 border border-amber-200 transition-colors disabled:opacity-50"
+              >
+                <UserX size={15} />
+                No Show
+              </button>
+            )}
+            <button
+              onClick={() => updateMutation.mutate({ status: "cancelled" })}
+              disabled={isBusy}
+              className="flex-1 flex items-center justify-center gap-2 py-3 rounded-xl text-sm font-semibold text-red-600 bg-red-50 hover:bg-red-100 border border-red-200 transition-colors disabled:opacity-50"
+            >
+              <Ban size={15} />
+              Cancel
+            </button>
           </div>
         )}
       </div>
+
+      <style jsx global>{`
+        @keyframes slide {
+          0%   { width: 0%; margin-left: 0; }
+          50%  { width: 60%; }
+          100% { width: 0%; margin-left: 100%; }
+        }
+      `}</style>
     </>
-  );
-}
-
-function SectionLabel({ children, icon }: { children: React.ReactNode; icon?: React.ReactNode }) {
-  return (
-    <div className="flex items-center gap-1.5 mb-3">
-      {icon && <span className="text-slate-400">{icon}</span>}
-      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{children}</span>
-    </div>
-  );
-}
-
-function TotalRow({
-  icon,
-  label,
-  total,
-  paid,
-  currency,
-}: {
-  icon: React.ReactNode;
-  label: string;
-  total: number;
-  paid: number;
-  currency: string;
-}) {
-  const owed = Math.max(0, total - paid);
-  if (total === 0) return null;
-  return (
-    <div className="flex items-center justify-between px-3 py-2 bg-slate-50 rounded-lg border border-slate-100">
-      <div className="flex items-center gap-2">
-        {icon}
-        <span className="text-xs font-medium text-slate-600">{label}</span>
-      </div>
-      <div className="flex items-center gap-2">
-        <span className="text-xs font-semibold text-slate-700">{currency} {total.toLocaleString()}</span>
-        {owed > 0 ? (
-          <span className="text-[10px] font-bold text-red-600 bg-red-50 px-1.5 py-0.5 rounded">
-            {currency} {owed.toLocaleString()} owed
-          </span>
-        ) : (
-          <span className="text-[10px] font-bold text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded">paid</span>
-        )}
-      </div>
-    </div>
   );
 }

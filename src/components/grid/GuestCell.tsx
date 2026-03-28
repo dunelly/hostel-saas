@@ -1,7 +1,7 @@
 "use client";
 
-import { useDraggable } from "@dnd-kit/core";
-import { useState } from "react";
+import { useDraggable, useDroppable } from "@dnd-kit/core";
+import { useState, useCallback } from "react";
 import type { Assignment, CellPosition } from "./BedGrid";
 
 // Source accent bar colors (left stripe)
@@ -11,34 +11,26 @@ const SOURCE_BAR: Record<string, string> = {
   manual: "bg-emerald-500",
 };
 
-// Cell bg/border/text per status × source
-function getCellStyle(status: string, source: string) {
+// Cell bg/border/text per status
+function getCellStyle(status: string) {
   switch (status) {
     case "checked_in":
-      // Vibrant — guest is HERE
-      if (source === "booking.com")
-        return { bg: "bg-blue-100", border: "border-blue-300", text: "text-blue-900" };
-      if (source === "hostelworld")
-        return { bg: "bg-orange-100", border: "border-orange-300", text: "text-orange-900" };
+      // Green — guest is here
       return { bg: "bg-emerald-100", border: "border-emerald-300", text: "text-emerald-900" };
-
+    case "confirmed":
+      // Blue — arriving today / expected, not yet checked in
+      return { bg: "bg-blue-100", border: "border-blue-300", text: "text-blue-900" };
     case "checked_out":
-      // Monochrome — guest has left
+      // Slate — guest has left
       return { bg: "bg-slate-100", border: "border-slate-200", text: "text-slate-400" };
-
     case "no_show":
-      return { bg: "bg-red-50", border: "border-red-200", text: "text-red-400" };
-
+      // Red — didn't show
+      return { bg: "bg-red-100", border: "border-red-300", text: "text-red-700" };
     case "cancelled":
+      // Very muted
       return { bg: "bg-slate-50", border: "border-slate-200", text: "text-slate-300" };
-
     default:
-      // "confirmed" — expected, not yet arrived: pastel + dashed border
-      if (source === "booking.com")
-        return { bg: "bg-blue-50", border: "border-blue-200", text: "text-blue-600" };
-      if (source === "hostelworld")
-        return { bg: "bg-orange-50", border: "border-orange-200", text: "text-orange-600" };
-      return { bg: "bg-emerald-50", border: "border-emerald-200", text: "text-emerald-600" };
+      return { bg: "bg-blue-100", border: "border-blue-300", text: "text-blue-900" };
   }
 }
 
@@ -62,11 +54,33 @@ export function GuestCell({
       data: assignment,
     });
 
-  const style = transform
+  // Also register as a drop target so the extend handle can land here (for shrinking)
+  const { setNodeRef: setDropRef } = useDroppable({
+    id: `drop-${assignment.bedId}-${assignment.date}`,
+    data: { bedId: assignment.bedId, date: assignment.date, type: "guest" },
+  });
+
+  // Stable composed ref — avoids infinite unregister/re-register loop
+  const composedRef = useCallback(
+    (node: HTMLDivElement | null) => { setNodeRef(node); setDropRef(node); },
+    [setNodeRef, setDropRef]
+  );
+
+  const {
+    attributes: extendAttrs,
+    listeners: extendListeners,
+    setNodeRef: setExtendNodeRef,
+    isDragging: isExtending,
+  } = useDraggable({
+    id: `extend-${assignment.id}`,
+    data: { type: "extend", assignment },
+  });
+
+  const style = transform && !isExtending
     ? { transform: `translate(${transform.x}px, ${transform.y}px)`, zIndex: 50 }
     : undefined;
 
-  const colors = getCellStyle(assignment.status, assignment.source);
+  const colors = getCellStyle(assignment.status);
   const barColor = SOURCE_BAR[assignment.source] || "bg-slate-400";
 
   // Dashed border for "confirmed" (expected, not yet arrived)
@@ -105,12 +119,12 @@ export function GuestCell({
 
   return (
     <div
-      ref={setNodeRef}
+      ref={composedRef}
       {...attributes}
       {...listeners}
       style={style}
-      className={`relative h-full flex items-center py-1 cursor-grab active:cursor-grabbing ${
-        isDragging ? "opacity-30" : dimClass
+      className={`relative group h-full flex items-center py-1 cursor-grab active:cursor-grabbing ${
+        isDragging || isExtending ? "opacity-30" : dimClass
       }`}
       onMouseEnter={() => setShowTooltip(true)}
       onMouseLeave={() => setShowTooltip(false)}
@@ -154,6 +168,23 @@ export function GuestCell({
             className={`w-1.5 h-1.5 rounded-full ${payDot} flex-shrink-0 mr-1.5`}
             title={assignment.paymentStatus}
           />
+        )}
+
+        {/* Stretch handle on the right edge */}
+        {(position === "end" || position === "single") && (
+          <div
+            ref={setExtendNodeRef}
+            {...extendAttrs}
+            {...extendListeners}
+            className="absolute right-0 top-0 bottom-0 w-4 cursor-ew-resize hover:bg-black/10 z-10 rounded-r flex items-center justify-center opacity-20 hover:opacity-100 group-hover:opacity-80 transition-opacity"
+            onPointerDown={(e) => {
+              // Trigger dnd-kit listeners before stopping propagation
+              extendListeners?.onPointerDown?.(e as any);
+              e.stopPropagation();
+            }}
+          >
+            <div className="w-1 h-3 rounded-full bg-slate-400/50" />
+          </div>
         )}
       </div>
 
