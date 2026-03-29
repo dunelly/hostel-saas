@@ -9,17 +9,11 @@
     "storage",
     "scripting",
     "tabs",
-    "alarms",
-    "identity"
+    "alarms"
   ],
-  "oauth2": {
-    "client_id": "224459923893-rtprf94dk4n52kdrmrqtabnk5one65r6.apps.googleusercontent.com",
-    "scopes": ["https://www.googleapis.com/auth/gmail.readonly"]
-  },
   "host_permissions": [
     "https://admin.booking.com/*",
     "https://inbox.hostelworld.com/*",
-    "https://mail.google.com/*",
     "http://localhost:3000/*",
     "https://*.vercel.app/*"
   ],
@@ -42,15 +36,6 @@
       ],
       "js": [
         "src/content/hostelworld.js"
-      ],
-      "run_at": "document_idle"
-    },
-    {
-      "matches": [
-        "https://mail.google.com/*"
-      ],
-      "js": [
-        "src/content/gmail.js"
       ],
       "run_at": "document_idle"
     }

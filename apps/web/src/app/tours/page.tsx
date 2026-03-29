@@ -73,6 +73,7 @@ export default function ToursPage() {
   const invalidateAll = () => {
     queryClient.invalidateQueries({ queryKey: ["tours"] });
     queryClient.invalidateQueries({ queryKey: ["tour-signups"] });
+    queryClient.invalidateQueries({ queryKey: ["guest-profile"] });
   };
 
   const createTourMutation = useMutation({

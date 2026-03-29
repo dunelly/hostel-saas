@@ -127,9 +127,6 @@
     .last-import .label { font-size: 10px; color: var(--text-2); margin-top: 2px; text-transform: uppercase; letter-spacing: 0.06em; }
     .last-import .meta { font-size: 11px; color: var(--text-2); text-align: right; }
 
-    /* ── Sync buttons row ───────────────────────── */
-    .sync-row { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
-
     /* ── Buttons ────────────────────────────────── */
     .btn {
       width: 100%; padding: 9px 12px;
@@ -140,16 +137,6 @@
     }
     .btn:disabled { opacity: 0.35; cursor: not-allowed; }
     .btn:not(:disabled):active { transform: scale(0.97); }
-
-    .btn-gmail {
-      background: linear-gradient(135deg, #c2410c 0%, #ea580c 100%);
-      color: white;
-      box-shadow: 0 2px 10px var(--orange-glow), inset 0 1px 0 rgba(255,255,255,0.1);
-    }
-    .btn-gmail:not(:disabled):hover {
-      box-shadow: 0 4px 18px rgba(234,88,12,0.5), inset 0 1px 0 rgba(255,255,255,0.15);
-      transform: translateY(-1px);
-    }
 
     .btn-primary {
       background: linear-gradient(135deg, #4f46e5 0%, #6366f1 100%);
@@ -307,24 +294,13 @@
       <div class="meta" id="lastMeta"></div>
     </div>
 
-    <!-- Sync buttons side by side -->
-    <div class="sync-row">
-      <button id="gmailSyncBtn" class="btn btn-gmail">
-        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
-          <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/>
-          <polyline points="22,6 12,13 2,6"/>
-        </svg>
-        Gmail Sync
-      </button>
-
-      <button id="quickSyncBtn" class="btn btn-primary" title="Scrapes your open Booking.com tab">
-        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
-          <polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/>
-          <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
-        </svg>
-        Booking.com
-      </button>
-    </div>
+    <button id="quickSyncBtn" class="btn btn-primary" title="Scrapes your open Booking.com tab">
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+        <polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/>
+        <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
+      </svg>
+      Sync Booking.com
+    </button>
 
     <button id="importBtn" class="btn btn-ghost" disabled>
       <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
@@ -365,40 +341,6 @@
       </div>
       <div id="nextRunBooking" class="next-run" style="display:none"></div>
       <div id="autoLastBooking" class="auto-last" style="display:none"></div>
-    </div>
-
-    <!-- Auto-import: Gmail (Hostelworld) -->
-    <div class="auto-card">
-      <div class="auto-header">
-        <div class="auto-info">
-          <div class="auto-icon" style="background:rgba(234,88,12,0.1);border-color:rgba(234,88,12,0.2)">
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#fdba74" stroke-width="2">
-              <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/>
-              <polyline points="22,6 12,13 2,6"/>
-            </svg>
-          </div>
-          <div>
-            <div class="auto-title">Gmail Auto Sync</div>
-            <div class="auto-sub">Hostelworld emails · background</div>
-          </div>
-        </div>
-        <label class="toggle">
-          <input type="checkbox" id="autoToggleGmail">
-          <span class="toggle-slider"></span>
-        </label>
-      </div>
-      <div class="interval-row">
-        <span class="interval-label">Check every</span>
-        <select class="interval-select" id="intervalSelectGmail">
-          <option value="15">15 min</option>
-          <option value="30" selected>30 min</option>
-          <option value="60">1 hour</option>
-          <option value="120">2 hours</option>
-          <option value="360">6 hours</option>
-        </select>
-      </div>
-      <div id="nextRunGmail" class="next-run" style="display:none"></div>
-      <div id="autoLastGmail" class="auto-last" style="display:none"></div>
     </div>
 
     <button id="refreshBtn" class="btn btn-ghost" style="font-size:11px;padding:7px 12px;">

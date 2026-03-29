@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { guests, reservations, tourSignups, laundryOrders } from "@/lib/db/schema";
+import { guests, reservations, tourSignups, laundryOrders, tours } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
 
 // GET /api/guests/:id — full guest profile with combined totals
@@ -16,7 +16,24 @@ export async function GET(
   if (guest.length === 0) return NextResponse.json({ error: "Guest not found" }, { status: 404 });
 
   const guestReservations = await db.select().from(reservations).where(eq(reservations.guestId, guestId));
-  const guestTours = await db.select().from(tourSignups).where(eq(tourSignups.guestId, guestId));
+  const guestTours = await db
+    .select({
+      id: tourSignups.id,
+      tourId: tourSignups.tourId,
+      guestName: tourSignups.guestName,
+      numPeople: tourSignups.numPeople,
+      totalPrice: tourSignups.totalPrice,
+      currency: tourSignups.currency,
+      paymentStatus: tourSignups.paymentStatus,
+      amountPaid: tourSignups.amountPaid,
+      notes: tourSignups.notes,
+      signedUpAt: tourSignups.signedUpAt,
+      tourName: tours.name,
+      tourDate: tours.date,
+    })
+    .from(tourSignups)
+    .leftJoin(tours, eq(tourSignups.tourId, tours.id))
+    .where(eq(tourSignups.guestId, guestId));
   const guestLaundry = await db.select().from(laundryOrders).where(eq(laundryOrders.guestId, guestId));
 
   // Calculate combined totals

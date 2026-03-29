@@ -61,6 +61,7 @@ export default function LaundryPage() {
 
   const invalidateAll = () => {
     queryClient.invalidateQueries({ queryKey: ["laundry"] });
+    queryClient.invalidateQueries({ queryKey: ["guest-profile"] });
   };
 
   const createOrderMutation = useMutation({

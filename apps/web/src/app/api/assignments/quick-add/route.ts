@@ -3,7 +3,7 @@ import { db } from "@/lib/db";
 import { guests, reservations, bedAssignments, beds } from "@/lib/db/schema";
 import { eq, and, ne } from "drizzle-orm";
 import { z } from "zod";
-import { eachDayOfInterval, parseISO } from "date-fns";
+import { eachDayOfInterval, parseISO, format } from "date-fns";
 
 const schema = z.object({
   guestName: z.string().min(1),
@@ -41,7 +41,7 @@ export async function POST(request: NextRequest) {
     // Check all nights are free (ignore cancelled/no_show)
     const nights = eachDayOfInterval({ start: parseISO(checkIn), end: parseISO(checkOut) }).slice(0, -1);
     for (const night of nights) {
-      const dateStr = night.toISOString().split("T")[0];
+      const dateStr = format(night, "yyyy-MM-dd");
       const conflict = await db
         .select({ id: bedAssignments.id })
         .from(bedAssignments)
@@ -91,7 +91,7 @@ export async function POST(request: NextRequest) {
 
     // Assign to specific bed for each night
     for (const night of nights) {
-      const dateStr = night.toISOString().split("T")[0];
+      const dateStr = format(night, "yyyy-MM-dd");
       await db.insert(bedAssignments).values({
         reservationId,
         bedId,

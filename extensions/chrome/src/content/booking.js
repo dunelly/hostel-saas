@@ -116,100 +116,90 @@
     return undefined;
   }
 
+  // Find reservations by scanning table rows for 10-digit booking number links.
+  // Does NOT rely on res_id= URL params — Booking.com uses JS navigation so hrefs
+  // don't contain res_id=. The booking number text link is always visible in the row.
   function scrapeReservations() {
     const reservations = [];
     const seen = new Set();
 
-    // Primary: find all reservation links with res_id
-    const resLinks = document.querySelectorAll('a[href*="res_id="]');
-    console.log(`[Hostel Manager] Found ${resLinks.length} reservation links`);
+    const rows = document.querySelectorAll("tr");
+    console.log(`[Hostel Manager] Scanning ${rows.length} table rows`);
 
-    for (const link of resLinks) {
+    for (const row of rows) {
       try {
-        // Extract res_id from URL
-        const url = new URL(link.href, window.location.href);
-        const resId = url.searchParams.get("res_id");
-        if (!resId || seen.has(resId)) continue;
+        const rowText = row.textContent.trim();
+        if (!rowText || rowText.length < 20) continue;
+        if (/\bCancell?ed\b/i.test(rowText)) continue;
 
-        // Guest name is the link text
-        const guestName = link.textContent.trim();
-        // Skip non-name links (booking numbers are also links with res_id)
-        if (!guestName || /^\d+$/.test(guestName) || guestName.length < 2) continue;
-
-        seen.add(resId);
-
-        // Find the parent row
-        const row = link.closest("tr.bui-table__row, tr");
-        if (!row) continue;
-
-        const rowText = row.textContent;
-
-        // Skip canceled reservations
-        if (/\bCanceled\b/i.test(rowText) || /\bCancelled\b/i.test(rowText)) continue;
-
-        // Extract dates from specific columns (not full row text, to avoid using "Booked on" date)
-        // Column order: Guest Name | Check-in | Check-out | Rooms | Booked on | Status | Price | Commission | Booking#
-        const cells = row.querySelectorAll("td");
-        let checkIn, checkOut;
-
-        if (cells.length >= 3) {
-          // Read check-in from column 1, check-out from column 2
-          checkIn = extractFirstDate(cells[1].textContent);
-          checkOut = extractFirstDate(cells[2].textContent);
+        // 1. Booking number: find 8-12 digit link text in the row
+        let bookingNum = null;
+        for (const a of row.querySelectorAll("a")) {
+          const t = a.textContent.trim();
+          if (/^\d{8,12}$/.test(t)) { bookingNum = t; break; }
         }
-
-        if (!checkIn || !checkOut) {
-          // Fallback: extract all dates from row, skip the earliest (booked-on date)
-          const allDates = extractDates(rowText);
-          if (allDates.length < 3) {
-            // Only 2 dates — no booked-on date visible, use as-is
-            checkIn = allDates[0];
-            checkOut = allDates[1];
-          } else {
-            // 3 dates: [booked-on, check-in, check-out] — skip first
-            checkIn = allDates[1];
-            checkOut = allDates[2];
+        // Fallback: res_id from href (in case Booking.com ever puts it back)
+        if (!bookingNum) {
+          for (const a of row.querySelectorAll('a[href*="res_id="]')) {
+            try {
+              const resId = new URL(a.href, window.location.href).searchParams.get("res_id");
+              if (resId) { bookingNum = resId; break; }
+            } catch (_) {}
           }
         }
+        if (!bookingNum || seen.has(bookingNum)) continue;
+
+        // 2. Guest name: first link in the row whose text has letters (not pure digits)
+        let guestName = null;
+        for (const a of row.querySelectorAll("a")) {
+          const t = a.textContent.trim();
+          if (t.length >= 2 && /[a-zA-Z]/.test(t) && !/^\d+$/.test(t)) {
+            guestName = t;
+            break;
+          }
+        }
+        if (!guestName) continue;
+
+        seen.add(bookingNum);
+
+        // 3. Check-in / check-out: first two <td> cells that contain a parseable date
+        const cellEls = row.querySelectorAll("td");
+        const dateCells = [...cellEls].filter(td => extractFirstDate(td.textContent) !== null);
+        let checkIn = dateCells[0] ? extractFirstDate(dateCells[0].textContent) : null;
+        let checkOut = dateCells[1] ? extractFirstDate(dateCells[1].textContent) : null;
+
+        // Fallback: dates from full row text (sorted); booking date is earliest, skip it
+        if (!checkIn || !checkOut) {
+          const allDates = extractDates(normalizeText(rowText));
+          if (allDates.length >= 3) { checkIn = allDates[1]; checkOut = allDates[2]; }
+          else if (allDates.length >= 2) { checkIn = allDates[0]; checkOut = allDates[1]; }
+        }
 
         if (!checkIn || !checkOut) {
-          console.log(`[Hostel Manager] Skipping ${guestName}: could not parse dates`);
+          console.log(`[Hostel Manager] Skipping ${guestName}: no dates found`);
           continue;
         }
 
-        // Determine room type from text
         const isFemale = /\bFEMALE\b/i.test(rowText) || /\bwomen\s*only\b/i.test(rowText);
-
-        // Extract number of guests: "2 adults" or "1 adult"
         const guestMatch = rowText.match(/(\d+)\s+adults?/i);
-        const numGuests = guestMatch ? parseInt(guestMatch[1]) : 1;
-
-        // Extract price: "VND 225,000" or "VND 1,800,000"
         const priceMatch = rowText.match(/VND\s+([\d,]+)/);
-        let totalPrice = undefined;
-        if (priceMatch) {
-          totalPrice = parseInt(priceMatch[1].replace(/,/g, ""));
-          if (totalPrice === 0) totalPrice = undefined;
-        }
-
-        // Room type description
-        const roomTypeReq = isFemale ? "female" : "mixed";
-        const preferredRoom = detectPreferredRoom(rowText);
+        let totalPrice = priceMatch ? parseInt(priceMatch[1].replace(/,/g, "")) : undefined;
+        if (totalPrice === 0) totalPrice = undefined;
 
         reservations.push({
-          externalId: `BC-${resId}`,
+          externalId: `BC-${bookingNum}`,
           source: "booking.com",
           guestName,
           checkIn,
           checkOut,
-          numGuests,
-          roomTypeReq,
-          preferredRoom,
-          totalPrice,
+          numGuests: guestMatch ? parseInt(guestMatch[1]) : 1,
+          roomTypeReq: isFemale ? "female" : "mixed",
+          preferredRoom: detectPreferredRoom(rowText),
+          totalPrice: totalPrice > 0 ? totalPrice : undefined,
           currency: "VND",
         });
       } catch (e) {
-        console.warn("[Hostel Manager] Error parsing reservation:", e);
+        console.warn("[Hostel Manager] Error parsing row:", e);
       }
     }
 
@@ -217,9 +207,21 @@
     return reservations;
   }
 
+  function normalizeText(text) {
+    return (text || "").replace(/\s+/g, " ").replace(/([a-zA-Z])(\d)/g, "$1 $2").replace(/(\d)([a-zA-Z])/g, "$1 $2").trim();
+  }
+
   // ─── Extract first date from a short string (single cell) ────────────────
   function extractFirstDate(text) {
-    const dates = extractDates(text.trim());
+    if (!text) return null;
+    // Normalize: collapse whitespace AND ensure space between letters↔digits
+    // Handles "29 Mar\n2026" or "29 Mar2026" → "29 Mar 2026"
+    const normalized = text
+      .replace(/\s+/g, " ")
+      .replace(/([a-zA-Z])(\d)/g, "$1 $2")
+      .replace(/(\d)([a-zA-Z])/g, "$1 $2")
+      .trim();
+    const dates = extractDates(normalized);
     return dates.length > 0 ? dates[0] : null;
   }
 
@@ -242,7 +244,7 @@
       const day = parseInt(match[2]);
       const year = parseInt(match[3]);
 
-      if (month !== undefined && day >= 1 && day <= 31 && year >= 2020 && year <= 2030) {
+      if (month !== undefined && day >= 1 && day <= 31 && year >= 2020 && year <= 2035) {
         const m = String(month + 1).padStart(2, "0");
         const d = String(day).padStart(2, "0");
         dates.push(`${year}-${m}-${d}`);
@@ -256,7 +258,7 @@
       const month = months[match[2].toLowerCase()];
       const year = parseInt(match[3]);
 
-      if (month !== undefined && day >= 1 && day <= 31 && year >= 2020 && year <= 2030) {
+      if (month !== undefined && day >= 1 && day <= 31 && year >= 2020 && year <= 2035) {
         const m = String(month + 1).padStart(2, "0");
         const d = String(day).padStart(2, "0");
         const dateStr = `${year}-${m}-${d}`;
@@ -335,6 +337,14 @@
   } else {
     injectButton();
   }
+
+  // ─── Listen for scrape requests from service worker (Quick Sync) ──────────
+  chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+    if (message.type === "SCRAPE_BOOKING_PAGE") {
+      const reservations = scrapeReservations();
+      sendResponse({ reservations });
+    }
+  });
 
   // Re-inject on SPA navigation
   let lastUrl = location.href;

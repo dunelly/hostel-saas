@@ -50,13 +50,10 @@ document.addEventListener("DOMContentLoaded", async () => {
   refreshAutoImportUI().catch(() => {});
 
   // Wire up event listeners (inline onclick blocked by MV3 CSP)
-  document.getElementById("gmailSyncBtn").addEventListener("click", gmailSync);
   document.getElementById("quickSyncBtn").addEventListener("click", quickSync);
   document.getElementById("importBtn").addEventListener("click", importFromCurrentTab);
-  document.getElementById("autoToggleBooking").addEventListener("change", () => toggleAutoImport("booking"));
-  document.getElementById("intervalSelectBooking").addEventListener("change", () => updateInterval("booking"));
-  document.getElementById("autoToggleGmail").addEventListener("change", () => toggleAutoImport("gmail"));
-  document.getElementById("intervalSelectGmail").addEventListener("change", () => updateInterval("gmail"));
+  document.getElementById("autoToggleBooking").addEventListener("change", () => toggleAutoImport());
+  document.getElementById("intervalSelectBooking").addEventListener("change", () => updateInterval());
   document.getElementById("refreshBtn").addEventListener("click", testConnection);
   document.getElementById("settingsToggleBtn").addEventListener("click", toggleSettings);
   document.getElementById("saveSettingsBtn").addEventListener("click", saveSettings);
@@ -70,9 +67,8 @@ async function refreshAutoImportUI() {
   const response = await chrome.runtime.sendMessage({ type: "GET_AUTO_IMPORT_STATUS" });
   if (!response.success) return;
 
-  const { booking, gmail } = response.status;
+  const { booking } = response.status;
 
-  // Booking
   document.getElementById("autoToggleBooking").checked = booking.enabled;
   document.getElementById("intervalSelectBooking").value = String(booking.intervalMinutes || 30);
   const nextRunB = document.getElementById("nextRunBooking");
@@ -83,104 +79,26 @@ async function refreshAutoImportUI() {
     nextRunB.style.display = "none";
   }
 
-  // Gmail
-  document.getElementById("autoToggleGmail").checked = gmail.enabled;
-  document.getElementById("intervalSelectGmail").value = String(gmail.intervalMinutes || 30);
-  const nextRunG = document.getElementById("nextRunGmail");
-  if (gmail.enabled && gmail.nextFireTime) {
-    nextRunG.textContent = `Next check: ${new Date(gmail.nextFireTime).toLocaleTimeString()}`;
-    nextRunG.style.display = "block";
-  } else {
-    nextRunG.style.display = "none";
-  }
-
-  // Last run labels
-  const stored = await chrome.storage.local.get({ lastAutoImportBooking: null, lastAutoImportGmail: null });
+  // Last run label
+  const stored = await chrome.storage.local.get({ lastAutoImportBooking: null });
   if (stored.lastAutoImportBooking) {
     const el = document.getElementById("autoLastBooking");
     const ts = new Date(stored.lastAutoImportBooking.timestamp).toLocaleString();
     el.innerHTML = `Last sync: <strong>${stored.lastAutoImportBooking.imported ?? 0} imported</strong> · ${ts}`;
     el.style.display = "block";
   }
-  if (stored.lastAutoImportGmail) {
-    const el = document.getElementById("autoLastGmail");
-    const ts = new Date(stored.lastAutoImportGmail.timestamp).toLocaleString();
-    el.innerHTML = `Last sync: <strong>${stored.lastAutoImportGmail.imported ?? 0} imported</strong> · ${ts}`;
-    el.style.display = "block";
-  }
 }
 
-async function toggleAutoImport(source) {
-  const toggleId = source === "gmail" ? "autoToggleGmail" : "autoToggleBooking";
-  const intervalId = source === "gmail" ? "intervalSelectGmail" : "intervalSelectBooking";
-  const enabled = document.getElementById(toggleId).checked;
-  const intervalMinutes = parseInt(document.getElementById(intervalId).value);
-
-  await chrome.runtime.sendMessage({ type: "SET_AUTO_IMPORT", source, enabled, intervalMinutes });
+async function toggleAutoImport() {
+  const enabled = document.getElementById("autoToggleBooking").checked;
+  const intervalMinutes = parseInt(document.getElementById("intervalSelectBooking").value);
+  await chrome.runtime.sendMessage({ type: "SET_AUTO_IMPORT", source: "booking", enabled, intervalMinutes });
   await refreshAutoImportUI();
 }
 
-async function updateInterval(source) {
-  const toggleId = source === "gmail" ? "autoToggleGmail" : "autoToggleBooking";
-  if (!document.getElementById(toggleId).checked) return;
-  await toggleAutoImport(source);
-}
-
-// ─── Gmail API sync (Hostelworld) ─────────────────────────────────────────────
-
-async function gmailSync() {
-  const btn = document.getElementById("gmailSyncBtn");
-  btn.innerHTML = `
-    <div style="width:13px;height:13px;border:2px solid rgba(255,255,255,0.4);border-top-color:white;border-radius:50%;animation:spin .8s linear infinite"></div>
-    Checking Gmail...
-  `;
-  btn.disabled = true;
-
-  try {
-    showStatus("Connecting to Google...", "checking");
-
-    // Get OAuth token here — popup has window context, service worker can't show auth dialogs
-    const token = await new Promise((resolve, reject) => {
-      chrome.identity.getAuthToken({ interactive: true }, (t) => {
-        if (chrome.runtime.lastError) reject(new Error(chrome.runtime.lastError.message));
-        else resolve(t);
-      });
-    });
-
-    showStatus("Scanning Gmail for Hostelworld emails...", "checking");
-    const response = await chrome.runtime.sendMessage({ type: "GMAIL_API_IMPORT", token });
-
-    if (response.success) {
-      const { imported, duplicates, cancelled, newFound } = response.result;
-      const msg = newFound === 0
-        ? "Gmail: no new Hostelworld emails"
-        : `Gmail: ${imported} imported · ${duplicates} duplicates · ${cancelled} cancelled`;
-      showStatus(msg, imported > 0 || cancelled > 0 ? "connected" : "checking");
-
-      const stored = await chrome.storage.local.get({ lastImport: null });
-      if (stored.lastImport) {
-        document.getElementById("lastImportSection").style.display = "block";
-        document.getElementById("lastCount").textContent = stored.lastImport.imported;
-        document.getElementById("lastMeta").textContent =
-          `${stored.lastImport.source} · ${new Date(stored.lastImport.timestamp).toLocaleString()}`;
-      }
-    } else {
-      showStatus(`Gmail sync failed: ${response.error}`, "disconnected");
-    }
-  } catch (err) {
-    showStatus(`Error: ${err.message}`, "disconnected");
-  } finally {
-    setTimeout(() => {
-      btn.innerHTML = `
-        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
-          <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/>
-          <polyline points="22,6 12,13 2,6"/>
-        </svg>
-        Sync Gmail (Hostelworld)
-      `;
-      btn.disabled = false;
-    }, 3000);
-  }
+async function updateInterval() {
+  if (!document.getElementById("autoToggleBooking").checked) return;
+  await toggleAutoImport();
 }
 
 // ─── Quick Sync (background tab) ─────────────────────────────────────────────
@@ -228,7 +146,7 @@ async function quickSync() {
           <polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/>
           <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
         </svg>
-        Quick Sync (Background)
+        Sync Booking.com
       `;
       btn.disabled = false;
     }, 3000);

@@ -4,7 +4,40 @@ import { useState, useEffect, useRef } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { format, addDays, parseISO } from "date-fns";
 import { useLang } from "@/contexts/LanguageContext";
-import { X, LogIn, LogOut, AlertCircle, CalendarPlus, Moon, Ban, UserX, Undo2, ChevronDown } from "lucide-react";
+import { X, LogIn, LogOut, AlertCircle, CalendarPlus, Moon, Ban, UserX, Undo2, ChevronDown, Printer, Receipt } from "lucide-react";
+
+interface TourItem {
+  id: number;
+  tourName: string | null;
+  tourDate: string | null;
+  numPeople: number;
+  totalPrice: number;
+  currency: string | null;
+  paymentStatus: string;
+  amountPaid: number | null;
+}
+
+interface LaundryItem {
+  id: number;
+  items: string | null;
+  weight: number | null;
+  price: number;
+  currency: string | null;
+  paymentStatus: string;
+  amountPaid: number | null;
+  droppedOffAt: string;
+}
+
+interface ResItem {
+  id: number;
+  checkIn: string;
+  checkOut: string;
+  numGuests: number;
+  totalPrice: number | null;
+  currency: string | null;
+  amountPaid: number | null;
+  source: string;
+}
 
 interface GuestProfile {
   id: number;
@@ -12,6 +45,9 @@ interface GuestProfile {
   idNumber: string | null;
   phone: string | null;
   nationality: string | null;
+  reservations: ResItem[];
+  tours: TourItem[];
+  laundry: LaundryItem[];
   totals: {
     room: { total: number; paid: number; owed: number };
     tours: { total: number; paid: number; owed: number };
@@ -67,6 +103,7 @@ export function GuestDetailPanel({ reservation, onClose }: Props) {
   const [showExtend, setShowExtend] = useState(false);
   const [extendNights, setExtendNights] = useState(1);
   const [extendError, setExtendError] = useState("");
+  const [showBill, setShowBill] = useState(false);
   const [mounted, setMounted] = useState(false);
   const [isClosing, setIsClosing] = useState(false);
 
@@ -78,6 +115,74 @@ export function GuestDetailPanel({ reservation, onClose }: Props) {
   function handleClose() {
     setIsClosing(true);
     setTimeout(() => onClose(), 200);
+  }
+
+  function handlePrintBill() {
+    if (!guestProfile) return;
+    const g = guestProfile;
+    const c = cur;
+    const fmt = (n: number) => n.toLocaleString();
+
+    let html = `<!DOCTYPE html><html><head><title>Bill - ${g.name}</title>
+<style>
+  body{font-family:system-ui,-apple-system,sans-serif;max-width:400px;margin:0 auto;padding:24px;color:#1c1917}
+  h1{font-size:18px;margin:0 0 4px}
+  .sub{color:#78716c;font-size:12px;margin-bottom:20px}
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  th{text-align:left;font-size:10px;text-transform:uppercase;letter-spacing:1px;color:#78716c;padding:6px 0;border-bottom:2px solid #e7e5e4}
+  td{padding:6px 0;border-bottom:1px solid #f5f5f4}
+  td:last-child,th:last-child{text-align:right}
+  .section{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#a8a29e;padding:16px 0 6px;border:none}
+  .total-row td{border-top:2px solid #1c1917;border-bottom:none;font-weight:700;font-size:15px;padding-top:12px}
+  .paid-row td{color:#059669;font-size:13px;border:none;padding-top:4px}
+  .owed-row td{color:#dc2626;font-size:16px;font-weight:800;border:none;padding-top:4px}
+  .zero td{color:#059669}
+  @media print{body{padding:12px}}
+</style></head><body>
+<h1>${g.name}</h1>
+<div class="sub">${g.idNumber ? "ID: " + g.idNumber + " · " : ""}${new Date().toLocaleDateString("en-GB",{day:"numeric",month:"short",year:"numeric"})}</div>
+<table>
+<tr><th>Item</th><th>Amount</th></tr>`;
+
+    // Room nights
+    if (g.reservations?.length) {
+      html += `<tr><td colspan="2" class="section">Accommodation</td></tr>`;
+      for (const r of g.reservations) {
+        const n = Math.max(1, Math.round((new Date(r.checkOut).getTime() - new Date(r.checkIn).getTime()) / 86400000));
+        const perN = (r.totalPrice || 0) > 0 ? (r.totalPrice! / n) : 0;
+        html += `<tr><td>${n} night${n!==1?"s":""} (${r.checkIn} → ${r.checkOut})${perN > 0 ? `<br><span style="color:#a8a29e;font-size:11px">${c} ${fmt(perN)}/night</span>` : ""}</td><td>${c} ${fmt(r.totalPrice||0)}</td></tr>`;
+      }
+    }
+
+    // Tours
+    if (g.tours?.length) {
+      html += `<tr><td colspan="2" class="section">Tours</td></tr>`;
+      for (const t of g.tours) {
+        html += `<tr><td>${t.tourName || "Tour"}${t.numPeople > 1 ? ` × ${t.numPeople}` : ""}${t.tourDate ? `<br><span style="color:#a8a29e;font-size:11px">${t.tourDate}</span>` : ""}</td><td>${c} ${fmt(t.totalPrice)}</td></tr>`;
+      }
+    }
+
+    // Laundry
+    if (g.laundry?.length) {
+      html += `<tr><td colspan="2" class="section">Laundry</td></tr>`;
+      for (const l of g.laundry) {
+        html += `<tr><td>${l.items || "Laundry"}${l.weight ? ` (${l.weight}kg)` : ""}</td><td>${c} ${fmt(l.price)}</td></tr>`;
+      }
+    }
+
+    const gt = g.totals.grand;
+    html += `<tr class="total-row"><td>Total</td><td>${c} ${fmt(gt.total)}</td></tr>`;
+    if (gt.paid > 0) html += `<tr class="paid-row"><td>Paid</td><td>− ${c} ${fmt(gt.paid)}</td></tr>`;
+    html += `<tr class="${gt.owed > 0 ? "owed-row" : "zero"}"><td>${gt.owed > 0 ? "Balance Due" : "Balance"}</td><td>${gt.owed > 0 ? `${c} ${fmt(gt.owed)}` : "Paid ✓"}</td></tr>`;
+
+    html += `</table></body></html>`;
+
+    const w = window.open("", "_blank", "width=500,height=700");
+    if (w) {
+      w.document.write(html);
+      w.document.close();
+      w.onload = () => w.print();
+    }
   }
 
   const { data: guestProfile } = useQuery<GuestProfile>({
@@ -464,6 +569,125 @@ export function GuestDetailPanel({ reservation, onClose }: Props) {
               </div>
             )}
           </div>
+
+          {/* ── TOTAL BILL ── */}
+          {guestProfile && (
+            <div className="px-6 pb-5">
+              <button
+                onClick={() => setShowBill(!showBill)}
+                className={`w-full flex items-center justify-between px-5 py-3.5 rounded-2xl border text-sm font-semibold transition-all duration-150 ${
+                  showBill
+                    ? "bg-stone-800 border-stone-800 text-white"
+                    : "bg-white border-stone-200 text-stone-600 hover:border-stone-300 hover:bg-stone-50"
+                }`}
+              >
+                <div className="flex items-center gap-2.5">
+                  <Receipt size={16} />
+                  Total Bill
+                </div>
+                <ChevronDown size={15} className={`transition-transform ${showBill ? "rotate-180 text-white/70" : "text-stone-400"}`} />
+              </button>
+
+              {showBill && (
+                <div className="mt-2 rounded-2xl border border-stone-200 bg-stone-50 overflow-hidden">
+                  {/* Room nights */}
+                  {guestProfile.reservations?.length > 0 && (
+                    <div className="px-5 pt-4 pb-2">
+                      <div className="text-[10px] font-bold text-stone-400 uppercase tracking-widest mb-2">Accommodation</div>
+                      {guestProfile.reservations.map((r) => {
+                        const n = Math.max(1, Math.round((new Date(r.checkOut).getTime() - new Date(r.checkIn).getTime()) / 86400000));
+                        const perN = (r.totalPrice || 0) > 0 ? (r.totalPrice! / n) : 0;
+                        return (
+                          <div key={r.id} className="flex justify-between items-baseline py-1.5">
+                            <div>
+                              <span className="text-sm text-stone-700">{n} night{n !== 1 ? "s" : ""}</span>
+                              <span className="text-xs text-stone-400 ml-2">
+                                {format(new Date(r.checkIn + "T12:00:00"), "d MMM")} → {format(new Date(r.checkOut + "T12:00:00"), "d MMM")}
+                              </span>
+                              {perN > 0 && <span className="text-xs text-stone-400 ml-1">({cur} {perN.toLocaleString()}/n)</span>}
+                            </div>
+                            <span className="text-sm font-semibold text-stone-700 tabular-nums">{cur} {(r.totalPrice || 0).toLocaleString()}</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  {/* Tours */}
+                  {guestProfile.tours?.length > 0 && (
+                    <div className="px-5 pt-3 pb-2 border-t border-stone-200">
+                      <div className="text-[10px] font-bold text-stone-400 uppercase tracking-widest mb-2">Tours</div>
+                      {guestProfile.tours.map((t) => (
+                        <div key={t.id} className="flex justify-between items-baseline py-1.5">
+                          <div>
+                            <span className="text-sm text-stone-700">{t.tourName || "Tour"}</span>
+                            {t.numPeople > 1 && <span className="text-xs text-stone-400 ml-1">× {t.numPeople}</span>}
+                            {t.tourDate && <span className="text-xs text-stone-400 ml-2">{format(new Date(t.tourDate + "T12:00:00"), "d MMM")}</span>}
+                          </div>
+                          <span className="text-sm font-semibold text-stone-700 tabular-nums">{cur} {t.totalPrice.toLocaleString()}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Laundry */}
+                  {guestProfile.laundry?.length > 0 && (
+                    <div className="px-5 pt-3 pb-2 border-t border-stone-200">
+                      <div className="text-[10px] font-bold text-stone-400 uppercase tracking-widest mb-2">Laundry</div>
+                      {guestProfile.laundry.map((l) => (
+                        <div key={l.id} className="flex justify-between items-baseline py-1.5">
+                          <div>
+                            <span className="text-sm text-stone-700">{l.items || "Laundry"}</span>
+                            {l.weight && <span className="text-xs text-stone-400 ml-1">({l.weight}kg)</span>}
+                          </div>
+                          <span className="text-sm font-semibold text-stone-700 tabular-nums">{cur} {l.price.toLocaleString()}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Grand totals */}
+                  <div className="px-5 pt-3 pb-4 border-t-2 border-stone-300 bg-white">
+                    <div className="flex justify-between items-baseline">
+                      <span className="text-sm font-bold text-stone-800">Grand Total</span>
+                      <span className="text-base font-extrabold text-stone-800 tabular-nums">
+                        {cur} {guestProfile.totals.grand.total.toLocaleString()}
+                      </span>
+                    </div>
+                    {guestProfile.totals.grand.paid > 0 && (
+                      <div className="flex justify-between items-baseline mt-1">
+                        <span className="text-sm text-emerald-600">Paid</span>
+                        <span className="text-sm font-semibold text-emerald-600 tabular-nums">
+                          − {cur} {guestProfile.totals.grand.paid.toLocaleString()}
+                        </span>
+                      </div>
+                    )}
+                    <div className="flex justify-between items-baseline mt-1">
+                      <span className="text-sm font-bold" style={{ color: guestProfile.totals.grand.owed > 0 ? "#dc2626" : "#059669" }}>
+                        {guestProfile.totals.grand.owed > 0 ? "Balance Due" : "Balance"}
+                      </span>
+                      <span className="text-lg font-extrabold tabular-nums" style={{ color: guestProfile.totals.grand.owed > 0 ? "#dc2626" : "#059669" }}>
+                        {guestProfile.totals.grand.owed > 0
+                          ? `${cur} ${guestProfile.totals.grand.owed.toLocaleString()}`
+                          : "Paid ✓"}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Print button */}
+                  <div className="px-5 py-3 border-t border-stone-200 bg-stone-50">
+                    <button
+                      onClick={handlePrintBill}
+                      className="w-full py-2.5 rounded-xl text-sm font-semibold text-stone-600 bg-white border border-stone-200 hover:bg-stone-100 flex items-center justify-center gap-2 transition-colors"
+                    >
+                      <Printer size={15} />
+                      Print Bill
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
 
           {/* ── EXTEND STAY ── */}
           {!isCancelled && !isNoShow && (

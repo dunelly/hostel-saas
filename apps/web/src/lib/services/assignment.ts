@@ -69,17 +69,24 @@ export async function autoAssign(
     // Get eligible rooms: if a preferred room is set (from OTA room type), use that.
     // preferredRoomId can be comma-separated e.g. "3A,3B" for rooms that share a Booking.com type.
     // This is a hard constraint — guests should always go to the room they booked.
-    let eligibleRoomIds: string[];
-    if (reservation.preferredRoomId) {
-      eligibleRoomIds = reservation.preferredRoomId.split(",").map((s) => s.trim());
-    } else {
-      eligibleRoomIds = allRooms
-        .filter((r) => {
-          if (reservation.roomTypeReq === "female") return r.roomType === "female";
-          return r.roomType === "mixed";
-        })
-        .map((r) => r.id);
-    }
+    // Build room priority: preferred rooms first, then same-type rooms, then all rooms as overflow
+    // This ensures manual extensions are never overwritten — we just find the next available bed
+    const preferredIds = reservation.preferredRoomId
+      ? reservation.preferredRoomId.split(",").map((s) => s.trim())
+      : [];
+    const sameTypeIds = allRooms
+      .filter((r) => {
+        if (reservation.roomTypeReq === "female") return r.roomType === "female";
+        return r.roomType === "mixed";
+      })
+      .map((r) => r.id)
+      .filter((id) => !preferredIds.includes(id));
+    const overflowIds = allRooms
+      .map((r) => r.id)
+      .filter((id) => !preferredIds.includes(id) && !sameTypeIds.includes(id));
+
+    // Preferred → same type → overflow (female room can be used by anyone if hostel is full)
+    const eligibleRoomIds = [...preferredIds, ...sameTypeIds, ...overflowIds];
 
     // Get existing assignments for the date range to check availability
     const existingAssignments = await db
@@ -210,11 +217,13 @@ function findBestBed(
   type Candidate = {
     bedId: string;
     roomId: string;
+    priority: number;      // lower = higher priority (position in eligibleRoomIds)
     occupancyRatio: number;
     bedNumber: number;
   };
 
   const candidates: Candidate[] = [];
+  const roomPriority = new Map(eligibleRoomIds.map((id, i) => [id, i]));
 
   for (const roomId of eligibleRoomIds) {
     const roomBeds = bedsByRoom.get(roomId) || [];
@@ -232,6 +241,7 @@ function findBestBed(
       candidates.push({
         bedId: bed.id,
         roomId: roomId,
+        priority: roomPriority.get(roomId) ?? 999,
         occupancyRatio: occupancy / room.capacity,
         bedNumber: bed.bedNumber,
       });
@@ -240,13 +250,10 @@ function findBestBed(
 
   if (candidates.length === 0) return null;
 
-  // Sort: highest occupancy ratio first (pack rooms), then lowest bed number
+  // Sort: preferred rooms first, then pack tightly (highest occupancy), then lowest bed number
   candidates.sort((a, b) => {
-    // Prefer rooms that are partially filled but not empty (pack tightly)
-    // But if a room is completely empty vs partially filled, prefer the partially filled one
-    if (a.occupancyRatio !== b.occupancyRatio) {
-      return b.occupancyRatio - a.occupancyRatio;
-    }
+    if (a.priority !== b.priority) return a.priority - b.priority;
+    if (a.occupancyRatio !== b.occupancyRatio) return b.occupancyRatio - a.occupancyRatio;
     return a.bedNumber - b.bedNumber;
   });
 

@@ -37,6 +37,13 @@ export default function ReservationsPage() {
   const queryClient = useQueryClient();
   const [showForm, setShowForm] = useState(false);
   const [search, setSearch] = useState("");
+  const [filterSource, setFilterSource] = useState("all");
+  const [filterPayment, setFilterPayment] = useState("all");
+  const [filterStatus, setFilterStatus] = useState("all");
+  const [filterDateFrom, setFilterDateFrom] = useState("");
+  const [filterDateTo, setFilterDateTo] = useState("");
+  const [sortBy, setSortBy] = useState<"checkIn" | "nights" | "name">("checkIn");
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
   const [selectedReservation, setSelectedReservation] =
     useState<Reservation | null>(null);
 
@@ -95,9 +102,28 @@ export default function ReservationsPage() {
     },
   });
 
-  const filtered = reservations.filter((r) =>
-    r.guestName.toLowerCase().includes(search.toLowerCase())
-  );
+  const getNights = (r: Reservation) =>
+    Math.max(1, Math.round((new Date(r.checkOut).getTime() - new Date(r.checkIn).getTime()) / 86400000));
+
+  const filtered = reservations
+    .filter((r) => {
+      if (search && !r.guestName.toLowerCase().includes(search.toLowerCase())) return false;
+      if (filterSource !== "all" && r.source !== filterSource) return false;
+      if (filterPayment !== "all" && r.paymentStatus !== filterPayment) return false;
+      if (filterStatus !== "all" && r.status !== filterStatus) return false;
+      if (filterDateFrom && r.checkIn < filterDateFrom) return false;
+      if (filterDateTo && r.checkIn > filterDateTo) return false;
+      return true;
+    })
+    .sort((a, b) => {
+      let cmp = 0;
+      if (sortBy === "checkIn") cmp = a.checkIn.localeCompare(b.checkIn);
+      else if (sortBy === "nights") cmp = getNights(a) - getNights(b);
+      else if (sortBy === "name") cmp = a.guestName.localeCompare(b.guestName);
+      return sortDir === "desc" ? -cmp : cmp;
+    });
+
+  const hasFilters = filterSource !== "all" || filterPayment !== "all" || filterStatus !== "all" || filterDateFrom || filterDateTo;
 
   const sourceConfig: Record<
     string,
@@ -222,22 +248,107 @@ export default function ReservationsPage() {
       )}
 
       {/* Search & Filter Bar */}
-      <div className="flex items-center gap-3">
-        <div className="relative flex-1 max-w-md">
-          <Search
-            size={16}
-            className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
-          />
-          <input
-            type="text"
-            placeholder="Search by guest name..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="w-full pl-10 pr-4 py-2.5 bg-white border border-slate-200 rounded-lg text-sm text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-slate-900/10 focus:border-slate-300 shadow-sm transition-shadow"
-          />
+      <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-4 space-y-3">
+        <div className="flex items-center gap-3">
+          <div className="relative flex-1 max-w-sm">
+            <Search
+              size={16}
+              className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
+            />
+            <input
+              type="text"
+              placeholder="Search by guest name..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="w-full pl-10 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-slate-900/10 focus:border-slate-300"
+            />
+          </div>
+          <select
+            value={filterSource}
+            onChange={(e) => setFilterSource(e.target.value)}
+            className="border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-700 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-slate-900/10"
+          >
+            <option value="all">All Sources</option>
+            <option value="booking.com">Booking.com</option>
+            <option value="hostelworld">Hostelworld</option>
+            <option value="manual">Walk-in</option>
+          </select>
+          <select
+            value={filterPayment}
+            onChange={(e) => setFilterPayment(e.target.value)}
+            className="border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-700 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-slate-900/10"
+          >
+            <option value="all">All Payments</option>
+            <option value="paid">Paid</option>
+            <option value="unpaid">Unpaid</option>
+            <option value="partial">Partial</option>
+          </select>
+          <select
+            value={filterStatus}
+            onChange={(e) => setFilterStatus(e.target.value)}
+            className="border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-700 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-slate-900/10"
+          >
+            <option value="all">All Statuses</option>
+            <option value="confirmed">Confirmed</option>
+            <option value="checked_in">Checked In</option>
+            <option value="cancelled">Cancelled</option>
+            <option value="no_show">No Show</option>
+          </select>
         </div>
-        <div className="text-xs text-slate-400">
-          {filtered.length} of {reservations.length} shown
+        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2 text-xs text-slate-500">
+            <CalendarDays size={14} />
+            <span>Check-in from</span>
+            <input
+              type="date"
+              value={filterDateFrom}
+              onChange={(e) => setFilterDateFrom(e.target.value)}
+              className="border border-slate-200 rounded-lg px-2.5 py-1.5 text-sm text-slate-700 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-slate-900/10"
+            />
+            <span>to</span>
+            <input
+              type="date"
+              value={filterDateTo}
+              onChange={(e) => setFilterDateTo(e.target.value)}
+              className="border border-slate-200 rounded-lg px-2.5 py-1.5 text-sm text-slate-700 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-slate-900/10"
+            />
+          </div>
+          <div className="flex items-center gap-2 ml-auto">
+            <span className="text-xs text-slate-400">Sort by</span>
+            <select
+              value={sortBy}
+              onChange={(e) => setSortBy(e.target.value as any)}
+              className="border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs text-slate-700 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-slate-900/10"
+            >
+              <option value="checkIn">Check-in Date</option>
+              <option value="nights">Nights</option>
+              <option value="name">Name</option>
+            </select>
+            <button
+              onClick={() => setSortDir(sortDir === "asc" ? "desc" : "asc")}
+              className="border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs text-slate-600 bg-slate-50 hover:bg-slate-100"
+            >
+              {sortDir === "asc" ? "A-Z / Oldest" : "Z-A / Newest"}
+            </button>
+            {hasFilters && (
+              <button
+                onClick={() => {
+                  setFilterSource("all");
+                  setFilterPayment("all");
+                  setFilterStatus("all");
+                  setFilterDateFrom("");
+                  setFilterDateTo("");
+                  setSearch("");
+                }}
+                className="text-xs text-red-500 hover:text-red-600 ml-1"
+              >
+                Clear filters
+              </button>
+            )}
+          </div>
+          <div className="text-xs text-slate-400">
+            {filtered.length} of {reservations.length}
+          </div>
         </div>
       </div>
 
@@ -275,16 +386,7 @@ export default function ReservationsPage() {
                 sourceConfig[r.source] || sourceConfig.manual;
               const status =
                 statusConfig[r.status] || statusConfig.confirmed;
-
-              // Calculate nights
-              const nights = Math.max(
-                1,
-                Math.round(
-                  (new Date(r.checkOut).getTime() -
-                    new Date(r.checkIn).getTime()) /
-                    86400000
-                )
-              );
+              const nights = getNights(r);
 
               return (
                 <tr

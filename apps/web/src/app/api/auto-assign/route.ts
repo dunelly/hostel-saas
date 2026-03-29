@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { reservations, bedAssignments } from "@/lib/db/schema";
-import { eq, notInArray, sql } from "drizzle-orm";
+import { eq, and, notInArray, sql } from "drizzle-orm";
 import { autoAssign } from "@/lib/services/assignment";
 
 export async function POST(request: NextRequest) {
@@ -12,11 +12,14 @@ export async function POST(request: NextRequest) {
     let idsToAssign: number[];
 
     if (reservationId) {
-      // Re-assign a specific reservation: delete its non-manual assignments first
+      // Re-assign a specific reservation: only delete auto assignments, keep manual ones
       await db
         .delete(bedAssignments)
         .where(
-          eq(bedAssignments.reservationId, reservationId)
+          and(
+            eq(bedAssignments.reservationId, reservationId),
+            eq(bedAssignments.isManual, 0)
+          )
         );
       idsToAssign = [reservationId];
     } else {
