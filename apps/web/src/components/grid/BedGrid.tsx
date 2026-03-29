@@ -545,15 +545,11 @@ export function BedGrid() {
         </div>
 
         <DragOverlay dropAnimation={null}>
-          {draggedAssignment && (
+          {draggedAssignment && !isExtendingOverlay && (
             <div className="bg-indigo-100 border border-indigo-300 text-indigo-800 shadow-xl text-xs px-2.5 py-1.5 rounded-lg flex items-center gap-1.5 font-medium">
               {draggedAssignment.guestName}
               <span className="text-indigo-400 text-[10px]">
-                {isExtendingOverlay
-                  ? "· extending..."
-                  : dragMode === "night"
-                    ? `· ${draggedAssignment.date}`
-                    : "· full stay"}
+                {dragMode === "night" ? `· ${draggedAssignment.date}` : "· full stay"}
               </span>
             </div>
           )}

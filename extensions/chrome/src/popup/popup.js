@@ -105,49 +105,86 @@ async function updateInterval() {
 
 async function quickSync() {
   const btn = document.getElementById("quickSyncBtn");
-  btn.innerHTML = `
+  const spinnerHtml = `
     <div style="width:13px;height:13px;border:2px solid rgba(255,255,255,0.4);border-top-color:white;border-radius:50%;animation:spin .8s linear infinite"></div>
     Syncing...
   `;
+  const resetHtml = `
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+      <polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/>
+      <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
+    </svg>
+    Sync Booking.com
+  `;
+
+  btn.innerHTML = spinnerHtml;
   btn.disabled = true;
 
   try {
-    showStatus("Scanning open Booking.com tab...", "checking");
+    showStatus("Starting sync...", "checking");
 
-    const response = await chrome.runtime.sendMessage({
-      type: "QUICK_IMPORT",
-      source: "booking",
-    });
+    // Kick off the import — service worker responds immediately then runs in background
+    const response = await chrome.runtime.sendMessage({ type: "QUICK_IMPORT", source: "booking" });
 
-    if (response.success) {
-      const { imported, duplicates, message } = response.result;
-      showStatus(
-        message || `Imported ${imported} new · ${duplicates} already exist`,
-        imported > 0 ? "connected" : "checking"
-      );
-
-      // Refresh last import display
-      const stored2 = await chrome.storage.local.get({ lastImport: null });
-      if (stored2.lastImport) {
-        document.getElementById("lastImportSection").style.display = "block";
-        document.getElementById("lastCount").textContent = stored2.lastImport.imported;
-        document.getElementById("lastMeta").textContent =
-          `${stored2.lastImport.source} · ${new Date(stored2.lastImport.timestamp).toLocaleString()}`;
-      }
-    } else {
-      showStatus(`Sync failed: ${response.error}`, "disconnected");
+    if (!response?.success) {
+      showStatus(`Sync failed: ${response?.error || "Unknown error"}`, "disconnected");
+      return;
     }
+
+    showStatus("Opening Booking.com...", "checking");
+    const startTime = new Date().toISOString();
+
+    // Phase 1: wait for the button click to be triggered (~35s)
+    const clickDeadline = Date.now() + 60_000;
+    let triggered = false;
+    while (Date.now() < clickDeadline) {
+      await new Promise(r => setTimeout(r, 2000));
+      const { lastQuickImport } = await chrome.storage.local.get({ lastQuickImport: null });
+      if (!lastQuickImport?.done) continue;
+
+      if (lastQuickImport.error) {
+        showStatus(`Sync failed: ${lastQuickImport.error}`, "disconnected");
+        return;
+      }
+      if (lastQuickImport.message) {
+        showStatus(lastQuickImport.message, "disconnected");
+        return;
+      }
+      triggered = true;
+      break;
+    }
+
+    if (!triggered) {
+      showStatus("Timed out — check Booking.com tab is logged in", "disconnected");
+      return;
+    }
+
+    showStatus("Importing...", "checking");
+
+    // Phase 2: wait for handleImport to save a new lastImport (up to 30s)
+    const importDeadline = Date.now() + 30_000;
+    while (Date.now() < importDeadline) {
+      await new Promise(r => setTimeout(r, 1500));
+      const { lastImport } = await chrome.storage.local.get({ lastImport: null });
+      if (lastImport?.timestamp && lastImport.timestamp > startTime) {
+        showStatus(
+          `Imported ${lastImport.imported} new · ${lastImport.duplicates || 0} already exist`,
+          lastImport.imported > 0 ? "connected" : "checking"
+        );
+        document.getElementById("lastImportSection").style.display = "block";
+        document.getElementById("lastCount").textContent = lastImport.imported;
+        document.getElementById("lastMeta").textContent =
+          `${lastImport.source} · ${new Date(lastImport.timestamp).toLocaleString()}`;
+        return;
+      }
+    }
+
+    showStatus("Import triggered — check Booking.com page for results", "checking");
   } catch (err) {
     showStatus(`Error: ${err.message}`, "disconnected");
   } finally {
     setTimeout(() => {
-      btn.innerHTML = `
-        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
-          <polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/>
-          <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
-        </svg>
-        Sync Booking.com
-      `;
+      btn.innerHTML = resetHtml;
       btn.disabled = false;
     }, 3000);
   }

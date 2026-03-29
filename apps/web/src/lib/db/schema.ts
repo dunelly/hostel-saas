@@ -46,7 +46,7 @@ export const reservations = sqliteTable(
     preferredRoomId: text("preferred_room_id"), // e.g. "1A", "3A,3B" — from OTA room type name
     numGuests: integer("num_guests").notNull().default(1),
     totalPrice: real("total_price"),
-    currency: text("currency").default("EUR"),
+    currency: text("currency").default("VND"),
     paymentStatus: text("payment_status").notNull().default("unpaid"), // "paid" | "unpaid" | "partial" | "refunded"
     amountPaid: real("amount_paid").default(0),
     status: text("status").notNull().default("confirmed"),

@@ -34,10 +34,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   if (message.type === "QUICK_IMPORT") {
+    // Respond immediately so the popup doesn't block waiting for a 40s task.
+    // The import runs in the background; result is saved to storage for polling.
+    chrome.storage.local.set({ lastQuickImport: { done: false, timestamp: new Date().toISOString() } });
+    sendResponse({ success: true, started: true });
     quickImportInBackground()
-      .then((result) => sendResponse({ success: true, result }))
-      .catch((err) => sendResponse({ success: false, error: err.message }));
-    return true;
+      .then((result) => chrome.storage.local.set({ lastQuickImport: { done: true, ...result, timestamp: new Date().toISOString() } }))
+      .catch((err) => chrome.storage.local.set({ lastQuickImport: { done: true, error: err.message, timestamp: new Date().toISOString() } }));
+    return false; // channel already closed via sendResponse
   }
 
   if (message.type === "SAVE_HOTEL_ID") {
@@ -78,7 +82,7 @@ function buildBookingReservationsUrl(hotelId) {
 
 // ─── Scrape an existing Booking.com tab (no navigation) ──────────────────────
 async function scrapeExistingTab(tab) {
-  for (let attempt = 0; attempt < 3; attempt++) {
+  for (let attempt = 0; attempt < 6; attempt++) {
     try {
       const response = await chrome.tabs.sendMessage(tab.id, { type: "SCRAPE_BOOKING_PAGE" });
       const reservations = response?.reservations || [];
@@ -87,7 +91,7 @@ async function scrapeExistingTab(tab) {
     } catch (e) {
       console.log(`[Hostel Manager] Scrape attempt ${attempt + 1}: content script not ready (${e.message})`);
     }
-    await sleep(2000);
+    await sleep(3000);
   }
   return [];
 }
@@ -138,15 +142,14 @@ async function autoImportBooking() {
   let tab;
 
   if (existingTabs.length > 0) {
-    // Refresh existing tab to get latest data
     tab = existingTabs[0];
     await chrome.tabs.update(tab.id, { url });
   } else {
     tab = await chrome.tabs.create({ url, active: false });
   }
 
-  await waitForTabLoad(tab.id, 20000);
-  await sleep(5000);
+  await waitForTabLoad(tab.id, 30000);
+  await sleep(8000);
 
   const reservations = await scrapeExistingTab(tab);
   if (reservations.length === 0) {
@@ -155,20 +158,64 @@ async function autoImportBooking() {
   return await handleImport(reservations);
 }
 
-// ─── Quick import: scrape existing tab first, navigate only if needed ────────
+// ─── Quick import: navigate to fresh URL then click the injected import button ─
 async function quickImportInBackground() {
-  // 1. Try scraping an already-open Booking.com tab (instant, no page reload)
-  const existingTabs = await chrome.tabs.query({ url: "https://admin.booking.com/*" });
-  if (existingTabs.length > 0) {
-    const reservations = await scrapeExistingTab(existingTabs[0]);
-    if (reservations.length > 0) {
-      console.log(`[Hostel Manager] Quick Sync: scraped ${reservations.length} from existing tab`);
-      return await handleImport(reservations);
+  console.log("[Hostel Manager] quickImport: starting");
+  let hotelId = (await chrome.storage.local.get({ hotelId: "" })).hotelId;
+  if (!hotelId) {
+    const openTabs = await chrome.tabs.query({ url: "https://admin.booking.com/*" });
+    for (const t of openTabs) {
+      try {
+        const id = new URL(t.url).searchParams.get("hotel_id");
+        if (id) { hotelId = id; await chrome.storage.local.set({ hotelId }); break; }
+      } catch (e) {}
     }
   }
+  if (!hotelId) {
+    console.log("[Hostel Manager] quickImport: no hotel ID");
+    return { done: true, message: "No hotel ID found. Enter it in extension settings." };
+  }
 
-  // 2. No existing tab or no reservations found — open a new tab and scrape
-  return await navigateAndScrapeBooking();
+  const url = buildBookingReservationsUrl(hotelId);
+  console.log("[Hostel Manager] quickImport: navigating to", url);
+  const existingTabs = await chrome.tabs.query({ url: "https://admin.booking.com/*" });
+  let tab;
+  if (existingTabs.length > 0) {
+    tab = existingTabs[0];
+    await chrome.tabs.update(tab.id, { url });
+    console.log("[Hostel Manager] quickImport: refreshed existing tab", tab.id);
+  } else {
+    tab = await chrome.tabs.create({ url, active: false });
+    console.log("[Hostel Manager] quickImport: created new tab", tab.id);
+  }
+
+  console.log("[Hostel Manager] quickImport: waiting for tab load...");
+  await waitForTabLoad(tab.id, 30000);
+  console.log("[Hostel Manager] quickImport: tab loaded, waiting 5s for content script...");
+  await sleep(5000);
+
+  // Click the same import button that the manual flow uses — proven to work
+  console.log("[Hostel Manager] quickImport: clicking import button...");
+  try {
+    const [res] = await chrome.scripting.executeScript({
+      target: { tabId: tab.id },
+      func: () => {
+        const btn = document.getElementById("hostel-import-btn");
+        if (btn) { btn.click(); return "clicked"; }
+        return "no-button";
+      },
+    });
+    console.log("[Hostel Manager] quickImport: executeScript result:", res?.result);
+    if (res?.result === "no-button") {
+      return { done: true, message: "Page loaded but import button not found — make sure you are logged in to Booking.com" };
+    }
+  } catch (e) {
+    console.error("[Hostel Manager] quickImport: executeScript error:", e);
+    return { done: true, message: `Could not click import button: ${e.message}` };
+  }
+
+  console.log("[Hostel Manager] quickImport: button clicked, import triggered");
+  return { done: true, triggered: true };
 }
 
 function waitForTabLoad(tabId, timeout = 15000) {
@@ -189,8 +236,16 @@ function waitForTabLoad(tabId, timeout = 15000) {
   });
 }
 
-function sleep(ms) {
-  return new Promise(resolve => setTimeout(resolve, ms));
+async function sleep(ms) {
+  // Break into 500ms chunks with a Chrome API call each iteration to keep
+  // the MV3 service worker alive (setTimeout alone won't prevent suspension).
+  let remaining = ms;
+  while (remaining > 0) {
+    const chunk = Math.min(500, remaining);
+    await new Promise(resolve => setTimeout(resolve, chunk));
+    await chrome.storage.local.get("_keepalive"); // ping Chrome to stay alive
+    remaining -= chunk;
+  }
 }
 
 // Maps Booking.com room type name → hostel room ID(s)

@@ -154,7 +154,7 @@ export function QuickAddPopover({ bedId, date, roomType, onClose }: Props) {
       bedId,
       numGuests: 1,
       totalPrice: price ? parseFloat(price) : undefined,
-      currency: "EUR",
+      currency: "VND",
       roomTypeReq: roomType === "female" ? "female" : "mixed",
       paymentStatus,
     });
@@ -287,7 +287,7 @@ export function QuickAddPopover({ bedId, date, roomType, onClose }: Props) {
           <div className="grid grid-cols-2 gap-2">
             <div>
               <label className="block text-[11px] font-semibold text-slate-500 uppercase tracking-wider mb-1">
-                {t("grid_price")} (EUR)
+                {t("grid_price")} (VND)
               </label>
               <input
                 type="number"

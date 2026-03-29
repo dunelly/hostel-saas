@@ -12,7 +12,7 @@ const schema = z.object({
   bedId: z.string().min(1),
   numGuests: z.number().int().min(1).default(1),
   totalPrice: z.number().min(0).optional(),
-  currency: z.string().default("EUR"),
+  currency: z.string().default("VND"),
   roomTypeReq: z.enum(["mixed", "female"]).default("mixed"),
   paymentStatus: z.enum(["paid", "unpaid", "partial"]).default("unpaid"),
 });
