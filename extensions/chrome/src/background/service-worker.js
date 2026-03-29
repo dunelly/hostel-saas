@@ -76,13 +76,96 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
 // ─── Build the Booking.com reservations list URL ─────────────────────────────
 function buildBookingReservationsUrl(hotelId) {
   const past = new Date(Date.now() - 2 * 864e5).toISOString().split("T")[0];
-  const future = new Date(Date.now() + 90 * 864e5).toISOString().split("T")[0];
+  const future = new Date(Date.now() + 14 * 864e5).toISOString().split("T")[0];
   return `https://admin.booking.com/hotel/hoteladmin/extranet_ng/manage/search_reservations.html?hotel_id=${hotelId}&date_from=${past}&date_to=${future}&date_type=arrival&rows=100`;
 }
 
-// ─── Scrape an existing Booking.com tab (no navigation) ──────────────────────
+// ─── Wait for page to fully load after navigation ──────────────────────────
+// Booking.com is JS-heavy. The browser "complete" event fires early, but the
+// reservation table is rendered via AJAX afterward. This function:
+// 1. Waits for the tab to start loading (confirms navigation began)
+// 2. Waits for the browser "complete" event
+// 3. Polls until booking number links (8-12 digits) appear in the DOM
+//    — these only exist once the AJAX table data has fully rendered
+async function waitForFullPageLoad(tabId, timeout = 60000) {
+  const start = Date.now();
+
+  // Step 1: Wait for tab to enter "loading" state (navigation started)
+  console.log("[Hostel Manager] Waiting for navigation to start...");
+  const loadingDeadline = start + 10000;
+  while (Date.now() < loadingDeadline) {
+    try {
+      const tab = await chrome.tabs.get(tabId);
+      if (tab.status === "loading") {
+        console.log("[Hostel Manager] Navigation started");
+        break;
+      }
+    } catch (e) {}
+    await sleep(200);
+  }
+
+  // Step 2: Wait for browser "complete" (DOM loaded)
+  console.log("[Hostel Manager] Waiting for DOM complete...");
+  const completeDeadline = start + 30000;
+  while (Date.now() < completeDeadline) {
+    try {
+      const tab = await chrome.tabs.get(tabId);
+      if (tab.status === "complete") {
+        console.log("[Hostel Manager] DOM complete");
+        break;
+      }
+    } catch (e) {}
+    await sleep(500);
+  }
+
+  // Step 3: Poll for actual reservation data (AJAX content)
+  console.log("[Hostel Manager] Waiting for reservation table data...");
+  const contentDeadline = start + timeout;
+  while (Date.now() < contentDeadline) {
+    try {
+      const [result] = await chrome.scripting.executeScript({
+        target: { tabId },
+        func: () => {
+          // Look for 8-12 digit booking number links
+          let bookingNums = 0;
+          for (const a of document.querySelectorAll("a")) {
+            if (/^\d{8,12}$/.test(a.textContent.trim())) bookingNums++;
+          }
+          // Also detect if page is still loading (skeleton placeholders)
+          // Skeleton rows have no text content in <td> cells
+          const rows = document.querySelectorAll("tr");
+          let skeletonRows = 0;
+          for (const row of rows) {
+            const tds = row.querySelectorAll("td");
+            if (tds.length > 3 && row.textContent.trim().length < 10) skeletonRows++;
+          }
+          return { bookingNums, skeletonRows, totalRows: rows.length };
+        },
+      });
+      const { bookingNums, skeletonRows, totalRows } = result?.result || {};
+      console.log(`[Hostel Manager] Content check: ${bookingNums} bookings, ${skeletonRows} skeleton rows, ${totalRows} total rows`);
+
+      if (bookingNums > 0) {
+        console.log(`[Hostel Manager] Page content ready: ${bookingNums} booking numbers found`);
+        return true;
+      }
+
+      // If there are skeleton rows, page is still loading — keep waiting
+      if (skeletonRows > 0) {
+        console.log("[Hostel Manager] Skeleton loading detected, still waiting...");
+      }
+    } catch (e) {
+      console.log(`[Hostel Manager] Content check error: ${e.message}`);
+    }
+    await sleep(3000);
+  }
+  console.log("[Hostel Manager] Timed out waiting for page content");
+  return false;
+}
+
+// ─── Scrape via content script (with retries) ───────────────────────────────
 async function scrapeExistingTab(tab) {
-  for (let attempt = 0; attempt < 6; attempt++) {
+  for (let attempt = 0; attempt < 8; attempt++) {
     try {
       const response = await chrome.tabs.sendMessage(tab.id, { type: "SCRAPE_BOOKING_PAGE" });
       const reservations = response?.reservations || [];
@@ -148,8 +231,12 @@ async function autoImportBooking() {
     tab = await chrome.tabs.create({ url, active: false });
   }
 
-  await waitForTabLoad(tab.id, 30000);
-  await sleep(8000);
+  const contentReady = await waitForFullPageLoad(tab.id, 60000);
+  if (!contentReady) {
+    console.log("[Hostel Manager] autoImport: table didn't load, trying scrape anyway");
+  }
+  // Wait for content script to be injected and ready
+  await sleep(3000);
 
   const reservations = await scrapeExistingTab(tab);
   if (reservations.length === 0) {
@@ -158,7 +245,7 @@ async function autoImportBooking() {
   return await handleImport(reservations);
 }
 
-// ─── Quick import: navigate to fresh URL then click the injected import button ─
+// ─── Quick import: navigate to fresh URL, wait for content, scrape, import ──
 async function quickImportInBackground() {
   console.log("[Hostel Manager] quickImport: starting");
   let hotelId = (await chrome.storage.local.get({ hotelId: "" })).hotelId;
@@ -189,52 +276,26 @@ async function quickImportInBackground() {
     console.log("[Hostel Manager] quickImport: created new tab", tab.id);
   }
 
-  console.log("[Hostel Manager] quickImport: waiting for tab load...");
-  await waitForTabLoad(tab.id, 30000);
-  console.log("[Hostel Manager] quickImport: tab loaded, waiting 5s for content script...");
-  await sleep(5000);
+  console.log("[Hostel Manager] quickImport: waiting for full page load...");
+  const contentReady = await waitForFullPageLoad(tab.id, 60000);
+  if (!contentReady) {
+    console.log("[Hostel Manager] quickImport: table didn't render in time");
+    return { done: true, message: "Page loaded but reservations table didn't appear — make sure you are logged in to Booking.com" };
+  }
+  // Wait for content script to be injected and ready
+  await sleep(3000);
 
-  // Click the same import button that the manual flow uses — proven to work
-  console.log("[Hostel Manager] quickImport: clicking import button...");
-  try {
-    const [res] = await chrome.scripting.executeScript({
-      target: { tabId: tab.id },
-      func: () => {
-        const btn = document.getElementById("hostel-import-btn");
-        if (btn) { btn.click(); return "clicked"; }
-        return "no-button";
-      },
-    });
-    console.log("[Hostel Manager] quickImport: executeScript result:", res?.result);
-    if (res?.result === "no-button") {
-      return { done: true, message: "Page loaded but import button not found — make sure you are logged in to Booking.com" };
-    }
-  } catch (e) {
-    console.error("[Hostel Manager] quickImport: executeScript error:", e);
-    return { done: true, message: `Could not click import button: ${e.message}` };
+  console.log("[Hostel Manager] quickImport: scraping via content script...");
+  const reservations = await scrapeExistingTab(tab);
+  if (reservations.length === 0) {
+    return { done: true, message: "Page loaded but no reservations found to import" };
   }
 
-  console.log("[Hostel Manager] quickImport: button clicked, import triggered");
-  return { done: true, triggered: true };
+  console.log(`[Hostel Manager] quickImport: importing ${reservations.length} reservations`);
+  const result = await handleImport(reservations);
+  return { done: true, imported: result.imported, duplicates: result.duplicates };
 }
 
-function waitForTabLoad(tabId, timeout = 15000) {
-  return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => {
-      chrome.tabs.onUpdated.removeListener(listener);
-      resolve(); // Continue anyway after timeout
-    }, timeout);
-
-    function listener(id, info) {
-      if (id === tabId && info.status === "complete") {
-        clearTimeout(timer);
-        chrome.tabs.onUpdated.removeListener(listener);
-        resolve();
-      }
-    }
-    chrome.tabs.onUpdated.addListener(listener);
-  });
-}
 
 async function sleep(ms) {
   // Break into 500ms chunks with a Chrome API call each iteration to keep

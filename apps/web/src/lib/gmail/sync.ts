@@ -3,10 +3,10 @@ import { getOAuthClient } from "./oauth";
 import { db } from "@/lib/db";
 import { settings } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
-import { parseHostelworldEmail } from "./parser";
+import { parseHostelworldEmail, parseHostelworldCancellation } from "./parser";
 import { importReservations } from "@/lib/services/reservation";
 import { autoAssign } from "@/lib/services/assignment";
-import { reservations } from "@/lib/db/schema";
+import { reservations, bedAssignments } from "@/lib/db/schema";
 import type { ReservationImport } from "@/types";
 
 /** Run promises in parallel batches of `size` */
@@ -22,6 +22,7 @@ async function batchAll<T>(items: T[], size: number, fn: (item: T) => Promise<an
 export interface SyncResult {
   imported: number;
   duplicates: number;
+  cancelled: number;
   errors: string[];
   emailsChecked: number;
   message?: string;
@@ -94,7 +95,7 @@ export async function startSyncInBackground(): Promise<void> {
     });
 }
 
-export async function runGmailSync(): Promise<SyncResult> {
+export async function runGmailSync(deep = false): Promise<SyncResult> {
   const row = await db
     .select()
     .from(settings)
@@ -121,10 +122,32 @@ export async function runGmailSync(): Promise<SyncResult> {
   });
 
   const gmail = google.gmail({ version: "v1", auth: client });
-  // Only Hostelworld emails — Booking.com emails are not useful from Gmail
-  const query = 'from:hostelworld.com subject:(booking OR reservation)';
 
-  // Paginate to get all matching emails
+  // Build query — deep scan skips date filter to catch all historical emails
+  let query: string;
+  let maxEmails: number;
+
+  if (deep) {
+    query = 'from:hostelworld.com subject:(booking OR reservation OR cancellation OR cancelled)';
+    maxEmails = 500;
+  } else {
+    // Incremental: only scan emails since last sync (or last 7 days on first run)
+    let afterDate: string;
+    const lastSyncRow = await db.select().from(settings).where(eq(settings.key, "gmail_last_sync")).get();
+    if (lastSyncRow?.value) {
+      const d = new Date(lastSyncRow.value);
+      d.setDate(d.getDate() - 1);
+      afterDate = `${d.getFullYear()}/${d.getMonth() + 1}/${d.getDate()}`;
+    } else {
+      const d = new Date();
+      d.setDate(d.getDate() - 7);
+      afterDate = `${d.getFullYear()}/${d.getMonth() + 1}/${d.getDate()}`;
+    }
+    query = `from:hostelworld.com subject:(booking OR reservation OR cancellation OR cancelled) after:${afterDate}`;
+    maxEmails = 200;
+  }
+
+  // Paginate to get matching emails
   const messages: { id: string }[] = [];
   let pageToken: string | undefined;
   do {
@@ -138,10 +161,10 @@ export async function runGmailSync(): Promise<SyncResult> {
       messages.push(...(listRes.data.messages as { id: string }[]));
     }
     pageToken = listRes.data.nextPageToken ?? undefined;
-  } while (pageToken && messages.length < 500);
+  } while (pageToken && messages.length < maxEmails);
 
   if (messages.length === 0) {
-    return { imported: 0, duplicates: 0, errors: [], emailsChecked: 0, message: "No reservation emails found." };
+    return { imported: 0, duplicates: 0, cancelled: 0, errors: [], emailsChecked: 0, message: "No reservation emails found." };
   }
 
   // Pre-load existing external IDs so we can skip emails we already imported
@@ -152,6 +175,7 @@ export async function runGmailSync(): Promise<SyncResult> {
   const existingIds = new Set(existingRows.map((r) => r.externalId).filter(Boolean));
 
   const parsed: ReservationImport[] = [];
+  const cancellationIds: string[] = [];
   const parseErrors: string[] = [];
 
   // Fetch emails in parallel batches of 10
@@ -167,6 +191,13 @@ export async function runGmailSync(): Promise<SyncResult> {
       const isHostelworld = from.toLowerCase().includes("hostelworld.com");
       if (!isHostelworld) return;
 
+      // Check for cancellation first
+      const cancelledExternalId = parseHostelworldCancellation(subject, body);
+      if (cancelledExternalId) {
+        cancellationIds.push(cancelledExternalId);
+        return;
+      }
+
       const reservation = parseHostelworldEmail(subject, body);
 
       if (reservation && reservation.externalId && reservation.guestName && reservation.checkIn && reservation.checkOut) {
@@ -179,19 +210,41 @@ export async function runGmailSync(): Promise<SyncResult> {
     }
   });
 
-  if (parsed.length === 0) {
+  // Process cancellations — mark as cancelled and remove bed assignments
+  let cancelledCount = 0;
+  if (cancellationIds.length > 0) {
+    const uniqueCancelIds = [...new Set(cancellationIds)];
+    for (const extId of uniqueCancelIds) {
+      const row = await db
+        .select({ id: reservations.id, status: reservations.status })
+        .from(reservations)
+        .where(eq(reservations.externalId, extId))
+        .get();
+      if (row && row.status !== "cancelled") {
+        await db.update(reservations).set({ status: "cancelled" }).where(eq(reservations.id, row.id));
+        await db.delete(bedAssignments).where(eq(bedAssignments.reservationId, row.id));
+        cancelledCount++;
+      }
+    }
+  }
+
+  if (parsed.length === 0 && cancelledCount === 0) {
     return {
       imported: 0,
       duplicates: 0,
+      cancelled: cancelledCount,
       errors: parseErrors,
       emailsChecked: messages.length,
       message: `Found ${messages.length} emails but could not parse any reservations.`,
     };
   }
 
-  const importResult = await importReservations(parsed);
-  if (importResult.newIds.length > 0) {
-    await autoAssign(importResult.newIds);
+  let importResult = { newIds: [] as number[], duplicateCount: 0, errors: [] as string[] };
+  if (parsed.length > 0) {
+    importResult = await importReservations(parsed);
+    if (importResult.newIds.length > 0) {
+      await autoAssign(importResult.newIds);
+    }
   }
 
   // Record last sync time
@@ -203,12 +256,17 @@ export async function runGmailSync(): Promise<SyncResult> {
       set: { value: new Date().toISOString(), updatedAt: new Date().toISOString() },
     });
 
+  const parts = [`Synced ${importResult.newIds.length} new`, `${importResult.duplicateCount} already existed`];
+  if (cancelledCount > 0) parts.push(`${cancelledCount} cancelled`);
+  parts.push(`(${messages.length} emails scanned)`);
+
   return {
     imported: importResult.newIds.length,
     duplicates: importResult.duplicateCount,
+    cancelled: cancelledCount,
     errors: [...importResult.errors, ...parseErrors],
     emailsChecked: messages.length,
-    message: `Synced ${importResult.newIds.length} new, ${importResult.duplicateCount} already existed (${messages.length} emails scanned)`,
+    message: parts.join(", "),
   };
 }
 

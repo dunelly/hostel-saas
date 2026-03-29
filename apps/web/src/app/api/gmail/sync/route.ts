@@ -17,7 +17,7 @@ async function setSyncResult(result: object) {
     .onConflictDoUpdate({ target: settings.key, set: { value, updatedAt: new Date().toISOString() } });
 }
 
-export async function POST() {
+export async function POST(request: Request) {
   try {
     const row = await db.select().from(settings).where(eq(settings.key, "gmail_tokens")).get();
     if (!row) return NextResponse.json({ error: "Gmail not connected" }, { status: 401 });
@@ -25,12 +25,15 @@ export async function POST() {
     const current = await getSyncStatus();
     if (current.status === "running") return NextResponse.json({ status: "already_running" });
 
+    const body = await request.json().catch(() => ({}));
+    const deep = body.deep === true;
+
     await setSyncStatus("running");
 
     // after() tells Vercel (and Next.js) to keep running this after the response is sent
     after(async () => {
       try {
-        const result = await runGmailSync();
+        const result = await runGmailSync(deep);
         await setSyncResult(result);
         await setSyncStatus("done");
       } catch (err) {
@@ -40,7 +43,7 @@ export async function POST() {
       }
     });
 
-    return NextResponse.json({ status: "started" });
+    return NextResponse.json({ status: "started", deep });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Unknown error";
     return NextResponse.json({ error: message }, { status: 500 });

@@ -13,6 +13,7 @@ interface GmailStatus {
 interface SyncResult {
   imported: number;
   duplicates: number;
+  cancelled?: number;
   errors: string[];
   emailsChecked: number;
   message?: string;
@@ -33,7 +34,7 @@ function GmailSection() {
   });
 
   // Poll sync status — auto-polls every 1.5s while status is "running"
-  const { data: syncStatus } = useQuery<{ status: string; result: SyncResult | null }>({
+  const { data: syncStatus } = useQuery<{ status: string; result: SyncResult | null; updatedAt?: string }>({
     queryKey: ["gmail-sync-status"],
     queryFn: () => fetch("/api/gmail/sync").then((r) => r.json()),
     refetchInterval: (query) => query.state.data?.status === "running" ? 1500 : false,
@@ -53,7 +54,7 @@ function GmailSection() {
   const isSyncing = syncStatus?.status === "running";
 
   const syncMutation = useMutation({
-    mutationFn: () => fetch("/api/gmail/sync", { method: "POST" }).then((r) => r.json()),
+    mutationFn: (deep = false) => fetch("/api/gmail/sync", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ deep }) }).then((r) => r.json()),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["gmail-sync-status"] });
     },
@@ -150,19 +151,34 @@ function GmailSection() {
                 <Clock size={12} />
                 Syncs automatically every hour when deployed
               </div>
-              <button
-                onClick={() => syncMutation.mutate()}
-                disabled={isSyncing || syncMutation.isPending}
-                className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-medium rounded-lg transition-colors disabled:opacity-50"
-              >
-                <RefreshCw size={12} className={isSyncing || syncMutation.isPending ? "animate-spin" : ""} />
-                {isSyncing || syncMutation.isPending ? "Syncing..." : "Sync Now"}
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => syncMutation.mutate(false)}
+                  disabled={isSyncing || syncMutation.isPending}
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-medium rounded-lg transition-colors disabled:opacity-50"
+                >
+                  <RefreshCw size={12} className={isSyncing || syncMutation.isPending ? "animate-spin" : ""} />
+                  {isSyncing || syncMutation.isPending ? "Syncing..." : "Sync Now"}
+                </button>
+                <button
+                  onClick={() => syncMutation.mutate(true)}
+                  disabled={isSyncing || syncMutation.isPending}
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-xs font-medium rounded-lg transition-colors disabled:opacity-50"
+                  title="Scan all Hostelworld emails (up to 500) — use to catch up on historical bookings"
+                >
+                  Deep Scan
+                </button>
+              </div>
             </div>
 
             {/* Sync result */}
             {lastSync && (
               <div className="bg-slate-50 rounded-lg p-3 text-xs space-y-1.5">
+                {syncStatus?.updatedAt && (
+                  <div className="text-slate-400 text-[11px]">
+                    Last synced: {new Date(syncStatus.updatedAt).toLocaleString()}
+                  </div>
+                )}
                 {lastSync.error ? (
                   <div className="text-red-500">{lastSync.error}</div>
                 ) : (
@@ -170,6 +186,9 @@ function GmailSection() {
                     <div className="flex gap-4 font-medium">
                       <span className="text-emerald-600">{lastSync.imported} imported</span>
                       <span className="text-slate-500">{lastSync.duplicates} already existed</span>
+                      {(lastSync.cancelled ?? 0) > 0 && (
+                        <span className="text-red-500">{lastSync.cancelled} cancelled</span>
+                      )}
                       {lastSync.emailsChecked > 0 && (
                         <span className="text-slate-400">{lastSync.emailsChecked} emails scanned</span>
                       )}
