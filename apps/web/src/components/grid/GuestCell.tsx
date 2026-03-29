@@ -164,7 +164,7 @@ export function GuestCell({
         {/* Guest name */}
         {showName && (
           <span
-            className={`truncate text-[11px] font-medium px-1.5 ${colors.text} flex-1 min-w-0`}
+            className={`truncate text-xs font-semibold px-1.5 ${colors.text} flex-1 min-w-0`}
           >
             {assignment.guestName}
           </span>

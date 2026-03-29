@@ -54,7 +54,7 @@ function GmailSection() {
   const isSyncing = syncStatus?.status === "running";
 
   const syncMutation = useMutation({
-    mutationFn: (deep = false) => fetch("/api/gmail/sync", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ deep }) }).then((r) => r.json()),
+    mutationFn: (deep: boolean = false) => fetch("/api/gmail/sync", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ deep }) }).then((r) => r.json()),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["gmail-sync-status"] });
     },
@@ -71,7 +71,7 @@ function GmailSection() {
   // Auto-trigger sync right after connecting
   useEffect(() => {
     if (justConnected && status?.connected && !isSyncing && !syncMutation.isPending) {
-      syncMutation.mutate();
+      syncMutation.mutate(false);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [justConnected, status?.connected]);

@@ -147,6 +147,27 @@ export function parseHostelworldEmail(
   };
 }
 
+// ─── Hostelworld Cancellation ───────────────────────────────────────────────
+// Cancellation emails contain the same ref number but subject/body indicates cancellation.
+// Returns the externalId (HW-...) if this is a cancellation email, or null otherwise.
+
+export function parseHostelworldCancellation(
+  subject: string,
+  body: string
+): string | null {
+  const text = stripHtml(body);
+  const full = subject + "\n" + text;
+
+  // Must look like a cancellation
+  if (!/cancel/i.test(full)) return null;
+
+  // Extract the same ref format as booking confirmations
+  const refMatch = full.match(/(?:ref(?:erence)?[:\s#]*|\(ref:\s*)?(\d{5,8}-\d{7,12})\)?/i);
+  if (!refMatch) return null;
+
+  return `HW-${refMatch[1].replace("-", "")}`;
+}
+
 function parseHWDate(d: string | undefined): string | null {
   if (!d) return null;
   const s = d.trim();

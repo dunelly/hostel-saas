@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef, useMemo } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { format, addDays, parseISO, subDays } from "date-fns";
-import { X, UserPlus, LogIn, Users, MoveHorizontal, CalendarPlus } from "lucide-react";
+import { X, UserPlus, LogIn, Users, MoveHorizontal, CalendarPlus, RotateCcw } from "lucide-react";
 import { useLang } from "@/contexts/LanguageContext";
 
 interface Props {
@@ -42,9 +42,11 @@ export function QuickAddPopover({ bedId, date, roomType, onClose }: Props) {
   // ── Existing guest state ───────────────────────────────────────────────────
   const [guestSearch, setGuestSearch] = useState("");
   const [selected, setSelected] = useState<GuestOption | null>(null);
+  const [rebookMode, setRebookMode] = useState(false);
+  const [rebookNights, setRebookNights] = useState(1);
 
   // Fetch assignments for existing guest picker
-  const rangeFrom = format(subDays(new Date(), 7), "yyyy-MM-dd");
+  const rangeFrom = format(subDays(new Date(), 30), "yyyy-MM-dd");
   const rangeTo   = format(addDays(new Date(), 90), "yyyy-MM-dd");
 
   const { data: rawAssignments = [] } = useQuery<GuestOption[]>({
@@ -169,7 +171,7 @@ export function QuickAddPopover({ bedId, date, roomType, onClose }: Props) {
     return () => document.removeEventListener("mousedown", handle);
   }, [onClose]);
 
-  const existingPending = moveMutation.isPending || extendMutation.isPending;
+  const existingPending = moveMutation.isPending || extendMutation.isPending || createMutation.isPending;
   // newCheckOut is the day after the clicked date (1 extra night)
   const newCheckOut = format(addDays(parseISO(date), 1), "yyyy-MM-dd");
   // Can extend if the clicked date is at or after the guest's check-in
@@ -375,7 +377,7 @@ export function QuickAddPopover({ bedId, date, roomType, onClose }: Props) {
               return (
                 <button
                   key={g.reservationId}
-                  onClick={() => setSelected(isSelected ? null : g)}
+                  onClick={() => { setSelected(isSelected ? null : g); setRebookMode(false); }}
                   className={`w-full text-left px-3 py-2 rounded-lg text-xs transition-colors ${
                     isSelected
                       ? "bg-slate-900 text-white"
@@ -407,7 +409,7 @@ export function QuickAddPopover({ bedId, date, roomType, onClose }: Props) {
                 </div>
               )}
 
-              <div className="grid grid-cols-2 gap-1.5">
+              <div className="grid grid-cols-3 gap-1.5">
                 {/* Move entire stay to this bed */}
                 <button
                   onClick={() => {
@@ -426,7 +428,7 @@ export function QuickAddPopover({ bedId, date, roomType, onClose }: Props) {
                   ) : (
                     <MoveHorizontal size={11} />
                   )}
-                  Move Here
+                  Move
                 </button>
 
                 {/* Extend stay to include this date */}
@@ -448,9 +450,76 @@ export function QuickAddPopover({ bedId, date, roomType, onClose }: Props) {
                   ) : (
                     <CalendarPlus size={11} />
                   )}
-                  Extend Here
+                  Extend
+                </button>
+
+                {/* Re-book: new stay for returning guest */}
+                <button
+                  onClick={() => { setRebookMode(!rebookMode); setError(""); }}
+                  disabled={existingPending}
+                  title={`New stay for ${selected.guestName} starting ${format(parseISO(date), "MMM d")}`}
+                  className={`flex items-center justify-center gap-1 py-2 rounded-lg text-xs font-semibold transition-colors ${
+                    rebookMode
+                      ? "bg-emerald-700 text-white"
+                      : "bg-emerald-600 text-white hover:bg-emerald-700"
+                  } disabled:opacity-40`}
+                >
+                  <RotateCcw size={11} />
+                  Re-book
                 </button>
               </div>
+
+              {/* Re-book expanded: nights picker + confirm */}
+              {rebookMode && (
+                <div className="space-y-2 pt-1">
+                  <div className="flex items-center gap-2">
+                    <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider">Nights</span>
+                    <div className="flex items-center gap-1 ml-auto">
+                      {[1, 2, 3, 4, 5, 7].map((n) => (
+                        <button
+                          key={n}
+                          type="button"
+                          onClick={() => setRebookNights(n)}
+                          className={`w-6 h-6 rounded-md text-[11px] font-semibold transition-colors ${
+                            rebookNights === n
+                              ? "bg-emerald-600 text-white"
+                              : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                          }`}
+                        >
+                          {n}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="text-[10px] text-slate-500">
+                    {format(parseISO(date), "MMM d")} → {format(addDays(parseISO(date), rebookNights), "MMM d")} · {selected.guestName}
+                  </div>
+                  <button
+                    onClick={() => {
+                      setError("");
+                      createMutation.mutate({
+                        guestName: selected.guestName,
+                        checkIn: date,
+                        checkOut: format(addDays(parseISO(date), rebookNights), "yyyy-MM-dd"),
+                        bedId,
+                        numGuests: 1,
+                        currency: "VND",
+                        roomTypeReq: roomType === "female" ? "female" : "mixed",
+                        paymentStatus: "unpaid",
+                      });
+                    }}
+                    disabled={existingPending}
+                    className="w-full flex items-center justify-center gap-1.5 py-2 bg-emerald-600 text-white rounded-lg text-xs font-bold hover:bg-emerald-700 disabled:opacity-60 transition-colors"
+                  >
+                    {createMutation.isPending ? (
+                      <div className="w-3 h-3 border-2 border-white/40 border-t-white rounded-full animate-spin" />
+                    ) : (
+                      <LogIn size={12} />
+                    )}
+                    Book New Stay · {rebookNights} {rebookNights !== 1 ? "nights" : "night"}
+                  </button>
+                </div>
+              )}
             </div>
           )}
         </div>
