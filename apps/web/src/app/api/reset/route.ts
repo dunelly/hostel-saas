@@ -1,10 +1,15 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { bedAssignments, reservations, guests, importLog, tourSignups, laundryOrders } from "@/lib/db/schema";
 
 // DELETE /api/reset — wipe all reservation data (keeps rooms & beds seeded data, keeps tours)
-export async function DELETE() {
+export async function DELETE(request: NextRequest) {
   try {
+    const secret = process.env.RESET_SECRET;
+    if (!secret || request.headers.get("authorization") !== `Bearer ${secret}`) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
     await db.delete(bedAssignments);
     await db.delete(tourSignups);
     await db.delete(laundryOrders);

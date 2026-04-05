@@ -28,6 +28,9 @@ import {
   Users,
   Search,
   Undo2,
+  LogIn,
+  LogOut,
+  AlertCircle,
 } from "lucide-react";
 import { GuestCell } from "./GuestCell";
 import { DroppableCell } from "./DroppableCell";
@@ -43,6 +46,7 @@ export interface Assignment {
   date: string;
   guestName: string;
   isManual: number;
+  guestId: number;
   source: string;
   checkIn: string;
   checkOut: string;
@@ -71,6 +75,7 @@ export function BedGrid() {
   const [isExtendingOverlay, setIsExtendingOverlay] = useState(false);
   const [dragMode, setDragMode] = useState<"stay" | "night">("stay");
   const [showPalette, setShowPalette] = useState(false);
+  const [expandedPill, setExpandedPill] = useState<"arrivals" | "departures" | "unpaid" | null>(null);
 
   type UndoEntry =
     | { type: "move"; reservationId: number; fromBedId: string; singleDate?: string }
@@ -123,6 +128,18 @@ export function BedGrid() {
       }),
   });
 
+  const swapMutation = useMutation({
+    mutationFn: (data: { reservationIdA: number; reservationIdB: number; bedIdA: string; bedIdB: string; singleDate?: string }) =>
+      fetch("/api/assignments/swap", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+      }).then((r) => {
+        if (!r.ok) return r.json().then((err) => { throw new Error(err.error || "Failed to swap"); });
+        return r.json();
+      }),
+  });
+
   const extendMutation = useMutation({
     mutationFn: (data: { reservationId: number; newCheckOut: string; targetBedId: string }) =>
       fetch("/api/assignments/extend", {
@@ -135,11 +152,39 @@ export function BedGrid() {
       }),
   });
 
+  const statusMutation = useMutation({
+    mutationFn: (data: { reservationId: number; status?: string; paymentStatus?: string }) =>
+      fetch(`/api/reservations/${data.reservationId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: data.status, paymentStatus: data.paymentStatus }),
+      }).then((r) => {
+        if (!r.ok) return r.json().then((err) => { throw new Error(err.error || "Failed to update"); });
+        return r.json();
+      }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["assignments"] }),
+  });
+
   // Lookup: bedId:date → assignment
   const assignmentMap = useMemo(() => {
     const map = new Map<string, Assignment>();
     for (const a of assignments) map.set(`${a.bedId}:${a.date}`, a);
     return map;
+  }, [assignments]);
+
+  // Returning guest detection: guestId with multiple reservationIds
+  const returningGuestIds = useMemo(() => {
+    const guestReservations = new Map<number, Set<number>>();
+    for (const a of assignments) {
+      if (!a.guestId) continue;
+      if (!guestReservations.has(a.guestId)) guestReservations.set(a.guestId, new Set());
+      guestReservations.get(a.guestId)!.add(a.reservationId);
+    }
+    const returning = new Set<number>();
+    for (const [guestId, resIds] of guestReservations) {
+      if (resIds.size > 1) returning.add(guestId);
+    }
+    return returning;
   }, [assignments]);
 
   // Cell position map for multi-day bar rendering
@@ -193,6 +238,28 @@ export function BedGrid() {
   const todayStr = format(new Date(), "yyyy-MM-dd");
   const totalBeds = rooms.reduce((sum, r) => sum + r.beds.length, 0);
   const todayOccupied = assignments.filter((a) => a.date === todayStr && a.status !== "cancelled" && a.status !== "no_show").length;
+
+  // Today's summary: arrivals, departures, unpaid
+  const todaySummary = useMemo(() => {
+    const todayAssignments = assignments.filter((a) => a.date === todayStr && a.status !== "cancelled");
+    const seen = new Map<number, Assignment>();
+    for (const a of todayAssignments) {
+      if (!seen.has(a.reservationId)) seen.set(a.reservationId, a);
+    }
+    const unique = Array.from(seen.values());
+    return {
+      arrivals: unique.filter((a) => a.checkIn === todayStr && (a.status === "confirmed" || a.status === "checked_in")),
+      departures: unique.filter((a) => a.checkOut === todayStr && (a.status === "checked_in" || a.status === "checked_out")),
+      unpaid: unique.filter((a) => a.paymentStatus !== "paid" && a.paymentStatus !== "refunded" && a.status !== "no_show"),
+    };
+  }, [assignments, todayStr]);
+
+  const scrollToBed = useCallback((bedId: string, reservationId: number) => {
+    setSelectedReservation(reservationId);
+    setExpandedPill(null);
+    const row = document.querySelector(`tr[data-bed-id="${bedId}"]`);
+    if (row) row.scrollIntoView({ behavior: "smooth", block: "center" });
+  }, []);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } })
@@ -294,10 +361,34 @@ export function BedGrid() {
       return;
     }
 
-    // Normal move — with inline undo
+    // Normal move or swap
     const actData = event.active.data.current as Assignment & { dragMode?: "stay" | "night" };
-    if (event.over.data.current?.type === "guest") return; // can't move onto occupied cell
     if (targetBedId === actData.bedId) return;
+
+    // Swap: dragging onto an occupied cell
+    if (event.over.data.current?.type === "guest") {
+      const targetReservationId = event.over.data.current.reservationId as number;
+      if (targetReservationId === actData.reservationId) return;
+
+      const effectiveDragMode = actData.dragMode ?? dragMode;
+      swapMutation.mutate(
+        {
+          reservationIdA: actData.reservationId,
+          reservationIdB: targetReservationId,
+          bedIdA: actData.bedId,
+          bedIdB: targetBedId,
+          singleDate: effectiveDragMode === "night" ? actData.date : undefined,
+        },
+        {
+          onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ["assignments"] });
+            toast("Guests swapped", "success");
+          },
+          onError: (error: Error) => toast(error.message, "error"),
+        }
+      );
+      return;
+    }
 
     const originalBedId = actData.bedId;
     const effectiveDragMode = actData.dragMode ?? dragMode;
@@ -425,6 +516,65 @@ export function BedGrid() {
         </div>
       </div>
 
+      {/* Today's Summary — clickable pills with dropdown */}
+      {(todaySummary.arrivals.length > 0 || todaySummary.departures.length > 0 || todaySummary.unpaid.length > 0) && (
+        <div className="flex items-center gap-2 flex-wrap relative">
+          {todaySummary.arrivals.length > 0 && (() => {
+            const pending = todaySummary.arrivals.filter(a => a.status === "confirmed").length;
+            const done = todaySummary.arrivals.filter(a => a.status === "checked_in").length;
+            return (
+              <SummaryPill
+                type="arrivals"
+                expanded={expandedPill === "arrivals"}
+                onToggle={() => setExpandedPill(expandedPill === "arrivals" ? null : "arrivals")}
+                className="bg-emerald-50 border-emerald-200 hover:bg-emerald-100"
+                icon={<LogIn size={12} className="text-emerald-600" />}
+                label={pending > 0
+                  ? <><span className="font-semibold text-emerald-800">{pending} arriving</span>{done > 0 && <span className="text-emerald-500 ml-1">· {done} in</span>}</>
+                  : <span className="font-semibold text-emerald-600">all checked in</span>
+                }
+                guests={todaySummary.arrivals}
+                onGuestClick={scrollToBed}
+                onClose={() => setExpandedPill(null)}
+              />
+            );
+          })()}
+          {todaySummary.departures.length > 0 && (() => {
+            const done = todaySummary.departures.filter(a => a.status === "checked_out").length;
+            const remaining = todaySummary.departures.length - done;
+            return (
+              <SummaryPill
+                type="departures"
+                expanded={expandedPill === "departures"}
+                onToggle={() => setExpandedPill(expandedPill === "departures" ? null : "departures")}
+                className="bg-slate-50 border-slate-200 hover:bg-slate-100"
+                icon={<LogOut size={12} className="text-slate-400" />}
+                label={remaining > 0
+                  ? <><span className="font-semibold text-slate-700">{remaining} departing</span>{done > 0 && <span className="text-slate-400 ml-1">· {done} out</span>}</>
+                  : <span className="font-semibold text-slate-500">all out</span>
+                }
+                guests={todaySummary.departures}
+                onGuestClick={scrollToBed}
+                onClose={() => setExpandedPill(null)}
+              />
+            );
+          })()}
+          {todaySummary.unpaid.length > 0 && (
+            <SummaryPill
+              type="unpaid"
+              expanded={expandedPill === "unpaid"}
+              onToggle={() => setExpandedPill(expandedPill === "unpaid" ? null : "unpaid")}
+              className="bg-red-50 border-red-200 hover:bg-red-100"
+              icon={<AlertCircle size={12} className="text-red-400" />}
+              label={<span className="font-semibold text-red-700">{todaySummary.unpaid.length} unpaid</span>}
+              guests={todaySummary.unpaid}
+              onGuestClick={scrollToBed}
+              onClose={() => setExpandedPill(null)}
+            />
+          )}
+        </div>
+      )}
+
       {/* Grid */}
       <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
         <div className="overflow-auto max-h-[calc(100vh-7rem)] bg-white rounded-xl border border-slate-200 shadow-sm">
@@ -458,6 +608,7 @@ export function BedGrid() {
                     <th
                       key={date.toISOString()}
                       className={`border-b border-r border-slate-200 p-0 min-w-[90px] ${headerBg}`}
+                      title={`${occ}/${totalBeds} beds full (${Math.round(occPct * 100)}%)`}
                     >
                       <div className="px-2 py-2 text-center">
                         <div
@@ -521,6 +672,7 @@ export function BedGrid() {
                     onSelectReservation={setSelectedReservation}
                     onOpenPanel={setPanelAssignment}
                     colorIndex={roomIndex}
+                    returningGuestIds={returningGuestIds}
                   />
                 ))
               )}
@@ -584,6 +736,7 @@ function RoomRows({
   onSelectReservation,
   onOpenPanel,
   colorIndex,
+  returningGuestIds,
 }: {
   room: RoomWithBeds;
   dates: Date[];
@@ -593,6 +746,7 @@ function RoomRows({
   onSelectReservation: (id: number | null) => void;
   onOpenPanel: (assignment: Assignment) => void;
   colorIndex: number;
+  returningGuestIds: Set<number>;
 }) {
   const [collapsed, setCollapsed] = useState(false);
   const isFemale = room.roomType === "female";
@@ -648,7 +802,7 @@ function RoomRows({
       {/* Bed rows */}
       {!collapsed &&
         room.beds.map((bed) => (
-          <tr key={bed.id} className="group/row">
+          <tr key={bed.id} data-bed-id={bed.id} className="group/row">
             <td
               className={`sticky left-0 z-10 border-b border-r border-slate-200 px-3 py-0 ${
                 isFemale ? "bg-pink-50/30" : "bg-white"
@@ -681,6 +835,7 @@ function RoomRows({
                       assignment={assignment}
                       position={cellPosition || "single"}
                       isSelected={selectedReservation === assignment.reservationId}
+                      isReturning={returningGuestIds.has(assignment.guestId)}
                       onSelect={() =>
                         onSelectReservation(
                           selectedReservation === assignment.reservationId
@@ -746,4 +901,73 @@ function SkeletonRows({ numDays }: { numDays: number }) {
   }
 
   return <>{rows}</>;
+}
+
+// ─── Summary pill with clickable dropdown ──────────────────────────────────
+function SummaryPill({
+  type,
+  expanded,
+  onToggle,
+  className,
+  icon,
+  label,
+  guests,
+  onGuestClick,
+  onClose,
+}: {
+  type: string;
+  expanded: boolean;
+  onToggle: () => void;
+  className: string;
+  icon: React.ReactNode;
+  label: React.ReactNode;
+  guests: Assignment[];
+  onGuestClick: (bedId: string, reservationId: number) => void;
+  onClose: () => void;
+}) {
+  const ref = React.useRef<HTMLDivElement>(null);
+
+  React.useEffect(() => {
+    if (!expanded) return;
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) onClose();
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [expanded, onClose]);
+
+  return (
+    <div ref={ref} className="relative">
+      <button
+        onClick={onToggle}
+        className={`flex items-center gap-1.5 px-2.5 py-1 border rounded-lg text-xs cursor-pointer transition-colors ${className}`}
+      >
+        {icon}
+        {label}
+        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className={`ml-0.5 text-slate-400 transition-transform ${expanded ? "rotate-180" : ""}`}>
+          <polyline points="6 9 12 15 18 9"/>
+        </svg>
+      </button>
+      {expanded && (
+        <div className="absolute top-full left-0 mt-1 z-50 bg-white rounded-xl border border-slate-200 shadow-lg py-1.5 min-w-[300px] max-h-[400px] overflow-y-auto">
+          {[...guests].sort((a, b) => a.guestName.localeCompare(b.guestName)).map((a) => (
+            <button
+              key={`${type}-${a.reservationId}`}
+              onClick={() => onGuestClick(a.bedId, a.reservationId)}
+              className="w-full flex items-center gap-2 px-3 py-1.5 text-xs hover:bg-slate-50 transition-colors text-left"
+            >
+              <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${
+                a.status === "checked_in" ? "bg-emerald-500"
+                  : a.status === "checked_out" ? "bg-slate-400"
+                  : a.paymentStatus !== "paid" ? "bg-red-400"
+                  : "bg-blue-400"
+              }`} />
+              <span className="font-medium text-slate-700 flex-1 truncate">{a.guestName}</span>
+              <span className="text-[11px] text-slate-400 font-mono flex-shrink-0">{a.bedId}</span>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
 }

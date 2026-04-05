@@ -36,7 +36,10 @@ export function QuickAddPopover({ bedId, date, roomType, onClose }: Props) {
   );
   const [nights, setNights] = useState(1);
   const [price, setPrice] = useState("");
-  const [paymentStatus, setPaymentStatus] = useState<"unpaid" | "paid">("unpaid");
+  const [paymentStatus, setPaymentStatus] = useState<"unpaid" | "paid" | "partial">("unpaid");
+  const [amountPaid, setAmountPaid] = useState("");
+  const [phone, setPhone] = useState("");
+  const [nationality, setNationality] = useState("");
   const [error, setError] = useState("");
 
   // ── Existing guest state ───────────────────────────────────────────────────
@@ -159,6 +162,9 @@ export function QuickAddPopover({ bedId, date, roomType, onClose }: Props) {
       currency: "VND",
       roomTypeReq: roomType === "female" ? "female" : "mixed",
       paymentStatus,
+      ...(paymentStatus === "partial" && amountPaid ? { amountPaid: parseFloat(amountPaid) } : {}),
+      ...(phone.trim() ? { phone: phone.trim() } : {}),
+      ...(nationality.trim() ? { nationality: nationality.trim() } : {}),
     });
   }
 
@@ -240,6 +246,28 @@ export function QuickAddPopover({ bedId, date, roomType, onClose }: Props) {
             />
           </div>
 
+          {/* Phone + Nationality */}
+          <div className="grid grid-cols-2 gap-2">
+            <input
+              type="tel"
+              value={phone}
+              onChange={(e) => setPhone(e.target.value)}
+              placeholder="Phone"
+              className="border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-slate-900/20 bg-slate-50 focus:bg-white transition-colors"
+            />
+            <input
+              type="text"
+              value={nationality}
+              onChange={(e) => setNationality(e.target.value)}
+              placeholder="Nationality"
+              list="nat-list"
+              className="border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-slate-900/20 bg-slate-50 focus:bg-white transition-colors"
+            />
+            <datalist id="nat-list">
+              {["Vietnam","Australia","UK","USA","Germany","France","Japan","South Korea","China","Canada","Netherlands","Sweden","Denmark","Italy","Spain","Brazil","India","Thailand","Singapore","Malaysia","Indonesia","Philippines","New Zealand","Ireland"].map(n => <option key={n} value={n} />)}
+            </datalist>
+          </div>
+
           {/* Dates row */}
           <div className="grid grid-cols-2 gap-2">
             <div>
@@ -305,30 +333,34 @@ export function QuickAddPopover({ bedId, date, roomType, onClose }: Props) {
               <label className="block text-[11px] font-semibold text-slate-500 uppercase tracking-wider mb-1">
                 {t("grid_payment")}
               </label>
-              <div className="flex gap-1.5">
-                <button
-                  type="button"
-                  onClick={() => setPaymentStatus("unpaid")}
-                  className={`flex-1 py-2 rounded-lg text-xs font-semibold transition-colors ${
-                    paymentStatus === "unpaid"
-                      ? "bg-red-100 text-red-700 border border-red-200"
-                      : "bg-slate-100 text-slate-500 border border-slate-200 hover:bg-slate-200"
-                  }`}
-                >
-                  {t("grid_unpaid")}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setPaymentStatus("paid")}
-                  className={`flex-1 py-2 rounded-lg text-xs font-semibold transition-colors ${
-                    paymentStatus === "paid"
-                      ? "bg-emerald-100 text-emerald-700 border border-emerald-200"
-                      : "bg-slate-100 text-slate-500 border border-slate-200 hover:bg-slate-200"
-                  }`}
-                >
-                  {t("grid_paid")}
-                </button>
+              <div className="flex gap-1">
+                {(["unpaid", "partial", "paid"] as const).map((ps) => (
+                  <button
+                    key={ps}
+                    type="button"
+                    onClick={() => setPaymentStatus(ps)}
+                    className={`flex-1 py-2 rounded-lg text-[10px] font-semibold transition-colors ${
+                      paymentStatus === ps
+                        ? ps === "paid" ? "bg-emerald-100 text-emerald-700 border border-emerald-200"
+                          : ps === "partial" ? "bg-amber-100 text-amber-700 border border-amber-200"
+                          : "bg-red-100 text-red-700 border border-red-200"
+                        : "bg-slate-100 text-slate-500 border border-slate-200 hover:bg-slate-200"
+                    }`}
+                  >
+                    {ps === "unpaid" ? t("grid_unpaid") : ps === "paid" ? t("grid_paid") : "Partial"}
+                  </button>
+                ))}
               </div>
+              {paymentStatus === "partial" && (
+                <input
+                  type="number"
+                  min={0}
+                  value={amountPaid}
+                  onChange={(e) => setAmountPaid(e.target.value)}
+                  placeholder="Amount paid"
+                  className="w-full mt-1.5 border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-slate-900/20 bg-slate-50 focus:bg-white transition-colors"
+                />
+              )}
             </div>
           </div>
 

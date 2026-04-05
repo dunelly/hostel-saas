@@ -1,4 +1,4 @@
-import { NextResponse, after } from "next/server";
+import { NextResponse } from "next/server";
 import { getSyncStatus, runGmailSync } from "@/lib/gmail/sync";
 import { db } from "@/lib/db";
 import { settings } from "@/lib/db/schema";
@@ -30,20 +30,17 @@ export async function POST(request: Request) {
 
     await setSyncStatus("running");
 
-    // after() tells Vercel (and Next.js) to keep running this after the response is sent
-    after(async () => {
-      try {
-        const result = await runGmailSync(deep);
-        await setSyncResult(result);
-        await setSyncStatus("done");
-      } catch (err) {
-        const message = err instanceof Error ? err.message : "Unknown error";
-        await setSyncResult({ error: message });
-        await setSyncStatus("error");
-      }
-    });
-
-    return NextResponse.json({ status: "started", deep });
+    try {
+      const result = await runGmailSync(deep);
+      await setSyncResult(result);
+      await setSyncStatus("done");
+      return NextResponse.json({ status: "done", result });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Unknown error";
+      await setSyncResult({ error: message });
+      await setSyncStatus("error");
+      return NextResponse.json({ status: "error", error: message });
+    }
   } catch (err) {
     const message = err instanceof Error ? err.message : "Unknown error";
     return NextResponse.json({ error: message }, { status: 500 });
@@ -53,8 +50,43 @@ export async function POST(request: Request) {
 export async function GET() {
   try {
     const syncStatus = await getSyncStatus();
+
+    // Auto-reset stuck "running" status after 2 minutes
+    if (syncStatus.status === "running" && syncStatus.updatedAt) {
+      const elapsed = Date.now() - new Date(syncStatus.updatedAt).getTime();
+      if (elapsed > 120_000) {
+        await setSyncStatus("idle");
+        return NextResponse.json({ ...syncStatus, status: "idle" });
+      }
+    }
+
     return NextResponse.json(syncStatus);
   } catch (err) {
     return NextResponse.json({ error: "Failed to get status" }, { status: 500 });
+  }
+}
+
+// PATCH — update auto-sync settings (enabled)
+export async function PATCH(request: Request) {
+  try {
+    const body = await request.json();
+
+    if (body.resetStatus) {
+      await setSyncStatus("idle");
+    }
+
+    if (typeof body.enabled === "boolean") {
+      await db.insert(settings).values({ key: "gmail_auto_sync", value: String(body.enabled) })
+        .onConflictDoUpdate({ target: settings.key, set: { value: String(body.enabled), updatedAt: new Date().toISOString() } });
+    }
+
+    const autoSync = await db.select().from(settings).where(eq(settings.key, "gmail_auto_sync")).get();
+
+    return NextResponse.json({
+      enabled: autoSync?.value !== "false",
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Unknown error";
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }

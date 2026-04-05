@@ -7,11 +7,14 @@ export const reservationImportSchema = z.object({
   checkIn: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   checkOut: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   roomTypeReq: z.enum(["mixed", "female"]),
-  preferredRoom: z.string().optional(), // e.g. "1A", "3A,3B"
+  preferredRoom: z.string().optional(),
   numGuests: z.number().int().min(1).default(1),
   totalPrice: z.number().optional(),
   currency: z.string().optional(),
   rawHtml: z.string().optional(),
+}).refine((data) => data.checkOut > data.checkIn, {
+  message: "Check-out must be after check-in",
+  path: ["checkOut"],
 });
 
 export const importRequestSchema = z.object({
@@ -28,6 +31,9 @@ export const manualReservationSchema = z.object({
   email: z.string().email().optional(),
   gender: z.enum(["male", "female", "other"]).optional(),
   notes: z.string().optional(),
+}).refine((data) => data.checkOut > data.checkIn, {
+  message: "Check-out must be after check-in",
+  path: ["checkOut"],
 });
 
 export const dateRangeSchema = z.object({

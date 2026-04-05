@@ -1,13 +1,24 @@
 // Background service worker: relays scraped data to the Hostel Manager API
 
 const ALARM_BOOKING = "auto-import-booking";
+const ALARM_GMAIL = "auto-sync-gmail";
 
 // ─── Message handler ──────────────────────────────────────────────────────────
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === "RESERVATIONS_SCRAPED") {
-    handleImport(message.data)
-      .then((result) => sendResponse({ success: true, result }))
-      .catch((err) => sendResponse({ success: false, error: err.message }));
+    (async () => {
+      try {
+        const result = await handleImport(message.data);
+        // Also cancel any cancelled reservations
+        if (message.cancelledIds?.length > 0) {
+          const cancelResult = await cancelReservations(message.cancelledIds);
+          result.cancelled = cancelResult.cancelled || 0;
+        }
+        sendResponse({ success: true, result });
+      } catch (err) {
+        sendResponse({ success: false, error: err.message });
+      }
+    })();
     return true;
   }
 
@@ -50,6 +61,31 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
+  if (message.type === "SET_GMAIL_AUTO_SYNC") {
+    const { enabled, intervalMinutes } = message;
+    setGmailAutoSync(enabled, intervalMinutes)
+      .then(() => sendResponse({ success: true }))
+      .catch((err) => sendResponse({ success: false, error: err.message }));
+    return true;
+  }
+
+  if (message.type === "TRIGGER_GMAIL_SYNC") {
+    // Run in background — respond immediately, save result to storage for polling
+    chrome.storage.local.set({ lastGmailSync: { done: false, timestamp: new Date().toISOString() } });
+    sendResponse({ success: true, started: true });
+    triggerGmailSync()
+      .then((result) => chrome.storage.local.set({ lastGmailSync: { done: true, ...result, timestamp: new Date().toISOString() } }))
+      .catch((err) => chrome.storage.local.set({ lastGmailSync: { done: true, error: err.message, timestamp: new Date().toISOString() } }));
+    return false;
+  }
+
+  if (message.type === "GET_GMAIL_AUTO_SYNC_STATUS") {
+    getGmailAutoSyncStatus()
+      .then((status) => sendResponse({ success: true, status }))
+      .catch((err) => sendResponse({ success: false, error: err.message }));
+    return true;
+  }
+
   // Cancel reservations by externalId
   if (message.type === "CANCEL_RESERVATIONS") {
     cancelReservations(message.externalIds)
@@ -69,6 +105,21 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
     } catch (err) {
       console.error("[Hostel Manager] Booking.com auto-import error:", err);
       await updateLastAutoImport({ imported: 0, duplicates: 0, error: err.message });
+    }
+  }
+
+  if (alarm.name === ALARM_GMAIL) {
+    console.log("[Hostel Manager] Gmail auto-sync alarm fired");
+    try {
+      const result = await triggerGmailSync();
+      await chrome.storage.local.set({
+        lastAutoGmailSync: { ...result, timestamp: new Date().toISOString() },
+      });
+    } catch (err) {
+      console.error("[Hostel Manager] Gmail auto-sync error:", err);
+      await chrome.storage.local.set({
+        lastAutoGmailSync: { error: err.message, timestamp: new Date().toISOString() },
+      });
     }
   }
 });
@@ -169,14 +220,15 @@ async function scrapeExistingTab(tab) {
     try {
       const response = await chrome.tabs.sendMessage(tab.id, { type: "SCRAPE_BOOKING_PAGE" });
       const reservations = response?.reservations || [];
-      console.log(`[Hostel Manager] Scrape attempt ${attempt + 1}: found ${reservations.length} reservations`);
-      if (reservations.length > 0) return reservations;
+      const cancelledIds = response?.cancelledIds || [];
+      console.log(`[Hostel Manager] Scrape attempt ${attempt + 1}: found ${reservations.length} reservations, ${cancelledIds.length} cancelled`);
+      if (reservations.length > 0 || cancelledIds.length > 0) return { reservations, cancelledIds };
     } catch (e) {
       console.log(`[Hostel Manager] Scrape attempt ${attempt + 1}: content script not ready (${e.message})`);
     }
     await sleep(3000);
   }
-  return [];
+  return { reservations: [], cancelledIds: [] };
 }
 
 // ─── Navigate to reservations list, wait for load, scrape, import ────────────
@@ -238,11 +290,16 @@ async function autoImportBooking() {
   // Wait for content script to be injected and ready
   await sleep(3000);
 
-  const reservations = await scrapeExistingTab(tab);
-  if (reservations.length === 0) {
-    return { imported: 0, duplicates: 0, message: "No reservations found" };
+  const { reservations, cancelledIds } = await scrapeExistingTab(tab);
+  if (reservations.length === 0 && cancelledIds.length === 0) {
+    return { imported: 0, duplicates: 0, cancelled: 0, message: "No reservations found" };
   }
-  return await handleImport(reservations);
+  const result = reservations.length > 0 ? await handleImport(reservations) : { imported: 0, duplicates: 0 };
+  if (cancelledIds.length > 0) {
+    const cancelResult = await cancelReservations(cancelledIds);
+    result.cancelled = cancelResult.cancelled || 0;
+  }
+  return result;
 }
 
 // ─── Quick import: navigate to fresh URL, wait for content, scrape, import ──
@@ -286,14 +343,18 @@ async function quickImportInBackground() {
   await sleep(3000);
 
   console.log("[Hostel Manager] quickImport: scraping via content script...");
-  const reservations = await scrapeExistingTab(tab);
-  if (reservations.length === 0) {
+  const { reservations, cancelledIds } = await scrapeExistingTab(tab);
+  if (reservations.length === 0 && cancelledIds.length === 0) {
     return { done: true, message: "Page loaded but no reservations found to import" };
   }
 
-  console.log(`[Hostel Manager] quickImport: importing ${reservations.length} reservations`);
-  const result = await handleImport(reservations);
-  return { done: true, imported: result.imported, duplicates: result.duplicates };
+  console.log(`[Hostel Manager] quickImport: importing ${reservations.length} reservations, ${cancelledIds.length} cancelled`);
+  const result = reservations.length > 0 ? await handleImport(reservations) : { imported: 0, duplicates: 0 };
+  if (cancelledIds.length > 0) {
+    const cancelResult = await cancelReservations(cancelledIds);
+    result.cancelled = cancelResult.cancelled || 0;
+  }
+  return { done: true, imported: result.imported, duplicates: result.duplicates, cancelled: result.cancelled || 0 };
 }
 
 
@@ -328,24 +389,30 @@ function detectPreferredRoom(text) {
 async function getSettings() {
   return chrome.storage.local.get({
     appUrl: "http://localhost:3000",
+    appUrl2: "",
     apiKey: "hostel-dev-key-change-me",
   });
 }
 
 async function handleImport(reservations) {
-  const { appUrl, apiKey } = await getSettings();
+  const urls = await getUrls();
+  const { apiKey } = await getSettings();
+  const body = JSON.stringify({ reservations });
+  const headers = { "Content-Type": "application/json", "x-api-key": apiKey };
 
-  const response = await fetch(`${appUrl}/api/import`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ reservations, apiKey }),
-  });
-
-  if (!response.ok) {
-    throw new Error(`Import failed: ${response.status} ${response.statusText}`);
+  let result = null;
+  for (const url of urls) {
+    try {
+      const response = await fetch(`${url}/api/import`, { method: "POST", headers, body });
+      if (response.ok && !result) {
+        result = await response.json();
+      }
+    } catch (e) {
+      console.warn(`[Hostel Manager] Import to ${url} failed:`, e.message);
+    }
   }
 
-  const result = await response.json();
+  if (!result) throw new Error("Import failed on all servers");
 
   await chrome.storage.local.set({
     lastImport: {
@@ -359,12 +426,27 @@ async function handleImport(reservations) {
   return result;
 }
 
+async function getUrls() {
+  const { appUrl, appUrl2 } = await getSettings();
+  return [appUrl, appUrl2].filter(Boolean);
+}
+
 async function testConnection() {
-  const { appUrl } = await getSettings();
-  const response = await fetch(`${appUrl}/api/rooms`);
-  if (!response.ok) throw new Error("Connection failed");
-  const rooms = await response.json();
-  return { connected: true, rooms: rooms.length };
+  const urls = await getUrls();
+  const results = [];
+
+  for (const url of urls) {
+    try {
+      const response = await fetch(`${url}/api/rooms`);
+      if (response.ok) {
+        const rooms = await response.json();
+        results.push({ url, rooms: rooms.length });
+      }
+    } catch (e) {}
+  }
+
+  if (results.length === 0) throw new Error("Connection failed");
+  return { connected: true, rooms: results[0].rooms, connectedUrls: results.length };
 }
 
 async function setAutoImport(enabled, intervalMinutes = 30) {
@@ -401,26 +483,93 @@ async function updateLastAutoImport(info) {
   });
 }
 
+// ─── Gmail auto-sync ─────────────────────────────────────────────────────────
+
+async function triggerGmailSync() {
+  const urls = await getUrls();
+  const headers = { "Content-Type": "application/json" };
+  const body = JSON.stringify({});
+
+  let result = null;
+  for (const url of urls) {
+    try {
+      const response = await fetch(`${url}/api/gmail/sync`, { method: "POST", headers, body });
+      if (response.ok && !result) {
+        result = await response.json();
+      }
+    } catch (e) {
+      console.warn(`[Hostel Manager] Gmail sync to ${url} failed:`, e.message);
+    }
+  }
+
+  if (!result) throw new Error("Gmail sync failed on all servers");
+  return result;
+}
+
+async function setGmailAutoSync(enabled, intervalMinutes = 60) {
+  await chrome.alarms.clear(ALARM_GMAIL);
+
+  if (enabled) {
+    chrome.alarms.create(ALARM_GMAIL, {
+      delayInMinutes: intervalMinutes,
+      periodInMinutes: intervalMinutes,
+    });
+  }
+
+  await chrome.storage.local.set({
+    autoSyncGmail: { enabled, intervalMinutes },
+  });
+}
+
+async function getGmailAutoSyncStatus() {
+  const stored = await chrome.storage.local.get({
+    autoSyncGmail: { enabled: false, intervalMinutes: 60 },
+    lastAutoGmailSync: null,
+  });
+  const alarm = await chrome.alarms.get(ALARM_GMAIL);
+  return {
+    ...stored.autoSyncGmail,
+    nextFireTime: alarm ? new Date(alarm.scheduledTime).toISOString() : null,
+    lastSync: stored.lastAutoGmailSync,
+  };
+}
+
 // ─── Cancel reservations by externalId ────────────────────────────────────────
 async function cancelReservations(externalIds) {
-  const { appUrl, apiKey } = await getSettings();
-  const response = await fetch(`${appUrl}/api/reservations/cancel`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ externalIds, apiKey }),
-  });
-  if (!response.ok) throw new Error(`Cancel failed: ${response.status}`);
-  return response.json();
+  const urls = await getUrls();
+  const { apiKey } = await getSettings();
+  const body = JSON.stringify({ externalIds });
+  const headers = { "Content-Type": "application/json", "x-api-key": apiKey };
+
+  let result = null;
+  for (const url of urls) {
+    try {
+      const response = await fetch(`${url}/api/reservations/cancel`, { method: "POST", headers, body });
+      if (response.ok && !result) {
+        result = await response.json();
+      }
+    } catch (e) {
+      console.warn(`[Hostel Manager] Cancel to ${url} failed:`, e.message);
+    }
+  }
+
+  if (!result) throw new Error("Cancel failed on all servers");
+  return result;
 }
 
 // ─── On install / service worker restart: restore alarms ─────────────────────
 async function restoreAlarms() {
   const stored = await chrome.storage.local.get({
     autoImportBooking: { enabled: false, intervalMinutes: 30 },
+    autoSyncGmail: { enabled: false, intervalMinutes: 60 },
   });
-  const alarm = await chrome.alarms.get(ALARM_BOOKING);
-  if (stored.autoImportBooking.enabled && !alarm) {
+  const bookingAlarm = await chrome.alarms.get(ALARM_BOOKING);
+  if (stored.autoImportBooking.enabled && !bookingAlarm) {
     await setAutoImport(true, stored.autoImportBooking.intervalMinutes);
+  }
+  const gmailAlarm = await chrome.alarms.get(ALARM_GMAIL);
+  if (stored.autoSyncGmail.enabled && !gmailAlarm) {
+    await setGmailAutoSync(true, stored.autoSyncGmail.intervalMinutes);
   }
 }
 

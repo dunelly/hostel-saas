@@ -15,6 +15,9 @@ const schema = z.object({
   currency: z.string().default("VND"),
   roomTypeReq: z.enum(["mixed", "female"]).default("mixed"),
   paymentStatus: z.enum(["paid", "unpaid", "partial"]).default("unpaid"),
+  amountPaid: z.number().min(0).optional(),
+  phone: z.string().optional(),
+  nationality: z.string().optional(),
 });
 
 export async function POST(request: NextRequest) {
@@ -26,7 +29,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Invalid request", details: parsed.error.issues }, { status: 400 });
     }
 
-    const { guestName, checkIn, checkOut, bedId, numGuests, totalPrice, currency, roomTypeReq, paymentStatus } = parsed.data;
+    const { guestName, checkIn, checkOut, bedId, numGuests, totalPrice, currency, roomTypeReq, paymentStatus, amountPaid, phone, nationality } = parsed.data;
 
     if (checkIn >= checkOut) {
       return NextResponse.json({ error: "Check-out must be after check-in" }, { status: 400 });
@@ -66,7 +69,11 @@ export async function POST(request: NextRequest) {
     if (existing) {
       guestId = existing.id;
     } else {
-      const inserted = await db.insert(guests).values({ name: guestName }).returning({ id: guests.id });
+      const inserted = await db.insert(guests).values({
+        name: guestName,
+        ...(phone ? { phone } : {}),
+        ...(nationality ? { nationality } : {}),
+      }).returning({ id: guests.id });
       guestId = inserted[0].id;
     }
 
@@ -83,6 +90,7 @@ export async function POST(request: NextRequest) {
         totalPrice: totalPrice ?? null,
         currency,
         paymentStatus,
+        amountPaid: amountPaid ?? 0,
         status: "confirmed",
       })
       .returning({ id: reservations.id });

@@ -3,7 +3,7 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState, useEffect, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
-import { Mail, CheckCircle, RefreshCw, Unlink, AlertCircle, Clock, ExternalLink, Hotel } from "lucide-react";
+import { Mail, CheckCircle, RefreshCw, Unlink, AlertCircle, Clock, ExternalLink, Hotel, Trash2 } from "lucide-react";
 
 interface GmailStatus {
   connected: boolean;
@@ -18,6 +18,11 @@ interface SyncResult {
   emailsChecked: number;
   message?: string;
   error?: string;
+}
+
+interface AutoSyncSettings {
+  enabled: boolean;
+  syncHour: number;
 }
 
 function GmailSection() {
@@ -68,10 +73,40 @@ function GmailSection() {
     },
   });
 
-  // Auto-trigger sync right after connecting
+  // Auto-sync settings
+  const { data: autoSyncSettings } = useQuery<AutoSyncSettings>({
+    queryKey: ["gmail-auto-sync"],
+    queryFn: async () => {
+      const syncStatus = await fetch("/api/gmail/sync").then((r) => r.json());
+      // Read from settings via PATCH with no changes — or we can just default
+      const res = await fetch("/api/gmail/sync", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      });
+      return res.json();
+    },
+    enabled: !!status?.connected,
+  });
+
+  const autoSyncMutation = useMutation({
+    mutationFn: (data: Partial<AutoSyncSettings>) =>
+      fetch("/api/gmail/sync", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+      }).then((r) => r.json()),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["gmail-auto-sync"] });
+    },
+  });
+
+  // Auto-trigger sync right after first connecting — then clear the URL param
   useEffect(() => {
     if (justConnected && status?.connected && !isSyncing && !syncMutation.isPending) {
       syncMutation.mutate(false);
+      // Remove the query param so refreshing the page doesn't re-trigger
+      window.history.replaceState({}, "", "/settings");
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [justConnected, status?.connected]);
@@ -85,7 +120,7 @@ function GmailSection() {
           </div>
           <div>
             <h2 className="font-semibold text-sm text-slate-900">Gmail Sync</h2>
-            <p className="text-xs text-slate-500">Auto-import Hostelworld reservations from Gmail (runs hourly)</p>
+            <p className="text-xs text-slate-500">Auto-import Hostelworld reservations from Gmail</p>
           </div>
         </div>
       </div>
@@ -146,10 +181,30 @@ function GmailSection() {
         {/* Sync controls */}
         {status?.connected && (
           <div className="space-y-3 pt-1 border-t border-slate-100">
+            {/* Auto-sync toggle */}
+            <div className="flex items-center justify-between pt-2">
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => autoSyncMutation.mutate({ enabled: !autoSyncSettings?.enabled })}
+                  className={`relative w-9 h-5 rounded-full transition-colors ${
+                    autoSyncSettings?.enabled !== false ? "bg-indigo-500" : "bg-slate-300"
+                  }`}
+                >
+                  <span className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${
+                    autoSyncSettings?.enabled !== false ? "translate-x-4" : ""
+                  }`} />
+                </button>
+                <span className="text-xs font-medium text-slate-700">Daily auto-sync</span>
+                <span className="text-[11px] text-slate-400">(6:00 AM UTC)</span>
+              </div>
+            </div>
+
             <div className="flex items-center justify-between pt-1">
               <div className="flex items-center gap-2 text-xs text-slate-500">
                 <Clock size={12} />
-                Syncs automatically every hour when deployed
+                {autoSyncSettings?.enabled !== false
+                  ? "Syncs daily at 06:00 UTC"
+                  : "Auto-sync disabled"}
               </div>
               <div className="flex items-center gap-2">
                 <button
@@ -229,10 +284,12 @@ function GmailSection() {
 }
 
 function BookingComSection() {
-  const [hotelId, setHotelId] = useState(() => {
-    if (typeof window !== "undefined") return localStorage.getItem("booking_hotel_id") || "";
-    return "";
-  });
+  const [hotelId, setHotelId] = useState("");
+
+  useEffect(() => {
+    const saved = localStorage.getItem("booking_hotel_id");
+    if (saved) setHotelId(saved);
+  }, []);
 
   function saveHotelId(id: string) {
     setHotelId(id);
@@ -300,6 +357,79 @@ function BookingComSection() {
   );
 }
 
+function DangerZone() {
+  const [confirmed, setConfirmed] = useState(false);
+  const queryClient = useQueryClient();
+
+  const resetMutation = useMutation({
+    mutationFn: async () => {
+      const res = await fetch("/api/reset", {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${prompt("Enter reset secret:") || ""}` },
+      });
+      if (!res.ok) throw new Error((await res.json()).error || "Reset failed");
+      return res.json();
+    },
+    onSuccess: () => {
+      setConfirmed(false);
+      queryClient.invalidateQueries();
+      alert("All reservation data cleared.");
+    },
+    onError: (err: Error) => {
+      alert(err.message);
+    },
+  });
+
+  return (
+    <div className="bg-white rounded-xl border border-red-200 overflow-hidden">
+      <div className="p-5 border-b border-red-100">
+        <div className="flex items-center gap-3">
+          <div className="w-9 h-9 bg-red-50 rounded-lg flex items-center justify-center flex-shrink-0">
+            <Trash2 size={18} className="text-red-500" />
+          </div>
+          <div>
+            <h2 className="font-semibold text-sm text-slate-900">Danger Zone</h2>
+            <p className="text-xs text-slate-500">Destructive actions that cannot be undone</p>
+          </div>
+        </div>
+      </div>
+
+      <div className="p-5">
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="text-sm font-medium text-slate-700">Clear all data</p>
+            <p className="text-xs text-slate-400 mt-0.5">Deletes all reservations, guests, assignments, laundry orders, and tour signups. Rooms and beds are kept.</p>
+          </div>
+          {!confirmed ? (
+            <button
+              onClick={() => setConfirmed(true)}
+              className="px-4 py-2 bg-red-50 text-red-600 text-xs font-medium rounded-lg hover:bg-red-100 border border-red-200 transition-colors whitespace-nowrap"
+            >
+              Clear All Data
+            </button>
+          ) : (
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setConfirmed(false)}
+                className="px-3 py-2 text-xs text-slate-500 hover:text-slate-700 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => resetMutation.mutate()}
+                disabled={resetMutation.isPending}
+                className="px-4 py-2 bg-red-600 text-white text-xs font-medium rounded-lg hover:bg-red-700 transition-colors disabled:opacity-50 whitespace-nowrap"
+              >
+                {resetMutation.isPending ? "Clearing..." : "Yes, delete everything"}
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function SettingsPage() {
   return (
     <div className="max-w-2xl space-y-6">
@@ -311,6 +441,7 @@ export default function SettingsPage() {
       <Suspense>
         <GmailSection />
       </Suspense>
+      <DangerZone />
     </div>
   );
 }

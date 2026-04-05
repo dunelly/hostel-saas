@@ -1,6 +1,6 @@
 "use client";
 
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { format, addDays } from "date-fns";
 import {
   AreaChart,
@@ -19,12 +19,31 @@ import {
   ArrowUpRight,
   CalendarClock,
   Download,
+  LogIn,
+  LogOut,
+  DollarSign,
 } from "lucide-react";
-import { useEffect, useState } from "react";
 import Link from "next/link";
+import { useState } from "react";
+import { GuestDetailPanel } from "@/components/GuestDetailPanel";
+
+interface TodayGuest {
+  id: number;
+  guestId: number;
+  guestName: string;
+  checkIn: string;
+  checkOut: string;
+  status: string;
+  paymentStatus: string;
+  totalPrice: number | null;
+  amountPaid: number | null;
+  source: string;
+  bedId?: string | null;
+}
 
 interface Stats {
   totalBeds: number;
+  totalRooms: number;
   occupancyByDate: {
     date: string;
     occupied: number;
@@ -40,26 +59,17 @@ interface Stats {
     importedAt: string;
   }[];
   unassignedCount: number;
+  todayArrivals: TodayGuest[];
+  todayDepartures: TodayGuest[];
+  unpaidInHouse: TodayGuest[];
 }
 
 export default function DashboardPage() {
-  const [seeded, setSeeded] = useState(false);
   const queryClient = useQueryClient();
+  const [panelGuest, setPanelGuest] = useState<TodayGuest | null>(null);
 
   const today = format(new Date(), "yyyy-MM-dd");
   const twoWeeksOut = format(addDays(new Date(), 14), "yyyy-MM-dd");
-
-  const seedMutation = useMutation({
-    mutationFn: () =>
-      fetch("/api/seed", { method: "POST" }).then((r) => r.json()),
-    onSuccess: () => setSeeded(true),
-  });
-
-  useEffect(() => {
-    if (!seeded) {
-      seedMutation.mutate();
-    }
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const { data: stats } = useQuery<Stats>({
     queryKey: ["stats", today, twoWeeksOut],
@@ -67,7 +77,6 @@ export default function DashboardPage() {
       fetch(`/api/stats?from=${today}&to=${twoWeeksOut}`).then((r) =>
         r.json()
       ),
-    enabled: seeded,
   });
 
   const todayStats = stats?.occupancyByDate?.find((d) => d.date === today);
@@ -98,20 +107,13 @@ export default function DashboardPage() {
         </Link>
       </div>
 
-      {!seeded && (
-        <div className="flex items-center gap-3 bg-indigo-50 border border-indigo-100 rounded-xl p-4 text-sm text-indigo-700">
-          <div className="w-2 h-2 bg-indigo-500 rounded-full animate-pulse" />
-          Setting up database...
-        </div>
-      )}
-
       {/* Stat Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <StatCard
           icon={<BedDouble size={20} />}
           label="Total Beds"
           value={stats?.totalBeds ?? "-"}
-          description="Across 7 rooms"
+          description={`Across ${stats?.totalRooms ?? "—"} rooms`}
           accent="slate"
         />
         <StatCard
@@ -146,6 +148,71 @@ export default function DashboardPage() {
           accent={stats?.unassignedCount ? "red" : "emerald"}
         />
       </div>
+
+      {/* Today's Activity */}
+      {stats && (stats.todayArrivals?.length > 0 || stats.todayDepartures?.length > 0 || stats.unpaidInHouse?.length > 0) && (
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+          <TodayList
+            title="Arrivals"
+            icon={<LogIn size={15} className="text-emerald-500" />}
+            guests={stats.todayArrivals || []}
+            accentBg="bg-emerald-50"
+            accentBorder="border-emerald-200"
+            emptyText="No arrivals today"
+            statusDot={(g) => g.status === "checked_in" ? "bg-emerald-400" : "bg-blue-400"}
+            statusLabel={(g) => g.status === "checked_in" ? "In" : "Expected"}
+            onSelect={setPanelGuest}
+          />
+          <TodayList
+            title="Departures"
+            icon={<LogOut size={15} className="text-slate-500" />}
+            guests={stats.todayDepartures || []}
+            accentBg="bg-slate-50"
+            accentBorder="border-slate-200"
+            emptyText="No departures today"
+            statusDot={(g) => g.status === "checked_out" ? "bg-slate-300" : "bg-amber-400"}
+            statusLabel={(g) => g.status === "checked_out" ? "Out" : "Still here"}
+            onSelect={setPanelGuest}
+          />
+          <TodayList
+            title="Unpaid"
+            icon={<DollarSign size={15} className="text-red-500" />}
+            guests={stats.unpaidInHouse || []}
+            accentBg="bg-red-50"
+            accentBorder="border-red-200"
+            emptyText="All settled up"
+            statusDot={() => "bg-red-400"}
+            statusLabel={(g) => {
+              const owed = (g.totalPrice ?? 0) - (g.amountPaid ?? 0);
+              return owed > 0 ? `${Math.round(owed).toLocaleString()}đ` : "—";
+            }}
+            onSelect={setPanelGuest}
+          />
+        </div>
+      )}
+
+      {/* Guest Detail Panel */}
+      {panelGuest && (
+        <GuestDetailPanel
+          reservation={{
+            id: panelGuest.id,
+            guestId: panelGuest.guestId,
+            guestName: panelGuest.guestName,
+            checkIn: panelGuest.checkIn,
+            checkOut: panelGuest.checkOut,
+            status: panelGuest.status,
+            paymentStatus: panelGuest.paymentStatus,
+            totalPrice: panelGuest.totalPrice,
+            amountPaid: panelGuest.amountPaid,
+            source: panelGuest.source,
+            bedId: panelGuest.bedId || "",
+            numGuests: 1,
+            roomTypeReq: "mixed",
+            currency: "VND",
+          }}
+          onClose={() => setPanelGuest(null)}
+        />
+      )}
 
       {/* Charts row */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
@@ -306,6 +373,58 @@ export default function DashboardPage() {
           </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+function TodayList({
+  title,
+  icon,
+  guests,
+  accentBg,
+  accentBorder,
+  emptyText,
+  statusDot,
+  statusLabel,
+  onSelect,
+}: {
+  title: string;
+  icon: React.ReactNode;
+  guests: TodayGuest[];
+  accentBg: string;
+  accentBorder: string;
+  emptyText: string;
+  statusDot: (g: TodayGuest) => string;
+  statusLabel: (g: TodayGuest) => string;
+  onSelect: (g: TodayGuest) => void;
+}) {
+  return (
+    <div className={`rounded-xl border ${accentBorder} ${accentBg} p-4`}>
+      <div className="flex items-center gap-2 mb-3">
+        {icon}
+        <span className="text-xs font-semibold text-slate-700">{title}</span>
+        <span className="text-[10px] font-medium text-slate-400 bg-white/60 px-1.5 py-0.5 rounded-full">{guests.length}</span>
+      </div>
+      {guests.length === 0 ? (
+        <p className="text-xs text-slate-400 py-2">{emptyText}</p>
+      ) : (
+        <div className="space-y-1.5">
+          {guests.map((g) => (
+            <button
+              key={g.id}
+              onClick={() => onSelect(g)}
+              className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg bg-white/70 hover:bg-white transition-colors text-left"
+            >
+              <div className={`w-2 h-2 rounded-full ${statusDot(g)} flex-shrink-0`} />
+              <span className="text-xs font-medium text-slate-700 truncate flex-1">{g.guestName}</span>
+              {g.bedId && (
+                <span className="text-[10px] font-mono text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded">{g.bedId}</span>
+              )}
+              <span className="text-[10px] text-slate-400 flex-shrink-0">{statusLabel(g)}</span>
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

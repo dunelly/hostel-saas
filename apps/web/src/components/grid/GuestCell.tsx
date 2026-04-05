@@ -1,8 +1,7 @@
 "use client";
 
 import { useDraggable, useDroppable } from "@dnd-kit/core";
-import { useState, useCallback } from "react";
-import { createPortal } from "react-dom";
+import { useCallback } from "react";
 import type { Assignment, CellPosition } from "./BedGrid";
 
 // Source accent bar colors (left stripe)
@@ -39,16 +38,17 @@ export function GuestCell({
   assignment,
   position,
   isSelected,
+  isReturning,
   onSelect,
   onDoubleClick,
 }: {
   assignment: Assignment;
   position: CellPosition;
   isSelected: boolean;
+  isReturning?: boolean;
   onSelect: () => void;
   onDoubleClick?: () => void;
 }) {
-  const [tooltipAnchor, setTooltipAnchor] = useState<{ x: number; y: number } | null>(null);
   // Name cells (start/single) drag the whole stay; continuation cells (middle/end) drag just that night
   const cellDragMode = position === "start" || position === "single" ? "stay" : "night";
 
@@ -61,7 +61,7 @@ export function GuestCell({
   // Also register as a drop target so the extend handle can land here (for shrinking)
   const { setNodeRef: setDropRef } = useDroppable({
     id: `drop-${assignment.bedId}-${assignment.date}`,
-    data: { bedId: assignment.bedId, date: assignment.date, type: "guest" },
+    data: { bedId: assignment.bedId, date: assignment.date, type: "guest", reservationId: assignment.reservationId },
   });
 
   // Stable composed ref — avoids infinite unregister/re-register loop
@@ -130,12 +130,7 @@ export function GuestCell({
       className={`relative group h-full flex items-center py-1 cursor-grab active:cursor-grabbing ${
         isDragging || isExtending ? "opacity-30" : dimClass
       }`}
-      onMouseEnter={(e) => {
-        const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
-        const x = Math.min(Math.max(rect.left + rect.width / 2, 115), window.innerWidth - 115);
-        setTooltipAnchor({ x, y: rect.top });
-      }}
-      onMouseLeave={() => setTooltipAnchor(null)}
+      title={showName ? `${assignment.guestName} · ${assignment.checkIn} → ${assignment.checkOut} · ${assignment.source}` : undefined}
       onClick={(e) => {
         e.stopPropagation();
         onSelect();
@@ -170,6 +165,11 @@ export function GuestCell({
           </span>
         )}
 
+        {/* Returning guest indicator */}
+        {showName && isReturning && (
+          <span className="w-1.5 h-1.5 rounded-full bg-amber-400 shrink-0" title="Returning guest" />
+        )}
+
         {/* Unpaid indicator dot */}
         {showName && payDot && (
           <span
@@ -196,86 +196,7 @@ export function GuestCell({
         )}
       </div>
 
-      {/* Tooltip — portalled to body to escape table overflow/stacking contexts */}
-      {tooltipAnchor && createPortal(
-        <div
-          className="pointer-events-none"
-          style={{
-            position: "fixed",
-            left: tooltipAnchor.x,
-            top: tooltipAnchor.y - 8,
-            transform: "translate(-50%, -100%)",
-            zIndex: 9999,
-          }}
-        >
-          <div className="relative bg-slate-900 text-white text-[11px] rounded-lg px-3 py-2.5 shadow-xl whitespace-nowrap min-w-[170px]">
-            <div className="font-semibold text-xs mb-1.5">{assignment.guestName}</div>
-            <div className="space-y-1 text-slate-300">
-              <TRow label="Dates" value={`${assignment.checkIn} → ${assignment.checkOut}`} />
-              <TRow
-                label="Status"
-                value={
-                  <span
-                    className={`px-1.5 py-0.5 rounded text-[10px] font-semibold ${
-                      assignment.status === "checked_in"
-                        ? "bg-emerald-700 text-emerald-100"
-                        : assignment.status === "checked_out"
-                          ? "bg-slate-600 text-slate-200"
-                          : assignment.status === "no_show"
-                            ? "bg-red-800 text-red-100"
-                            : "bg-indigo-700 text-indigo-200"
-                    }`}
-                  >
-                    {assignment.status === "checked_in"
-                      ? "Checked In"
-                      : assignment.status === "checked_out"
-                        ? "Checked Out"
-                        : assignment.status === "no_show"
-                          ? "No Show"
-                          : "Expected"}
-                  </span>
-                }
-              />
-              <TRow
-                label="Payment"
-                value={
-                  <span
-                    className={`px-1.5 py-0.5 rounded text-[10px] font-semibold ${
-                      assignment.paymentStatus === "paid"
-                        ? "bg-emerald-700 text-emerald-100"
-                        : assignment.paymentStatus === "partial"
-                          ? "bg-amber-700 text-amber-100"
-                          : "bg-red-800 text-red-100"
-                    }`}
-                  >
-                    {assignment.paymentStatus}
-                  </span>
-                }
-              />
-              <TRow label="Source" value={assignment.source} />
-              <TRow label="Bed" value={assignment.bedId} />
-              {assignment.isManual ? (
-                <div className="text-amber-300 text-[10px] mt-1 pt-1 border-t border-slate-700">
-                  ✋ Manually assigned
-                </div>
-              ) : null}
-            </div>
-            <div className="absolute top-full left-1/2 -translate-x-1/2 -mt-px">
-              <div className="w-2 h-2 bg-slate-900 rotate-45" />
-            </div>
-          </div>
-        </div>,
-        document.body
-      )}
     </div>
   );
 }
 
-function TRow({ label, value }: { label: string; value: React.ReactNode }) {
-  return (
-    <div className="flex items-center gap-2">
-      <span className="text-slate-500 w-14 shrink-0 text-[10px]">{label}</span>
-      <span>{value}</span>
-    </div>
-  );
-}

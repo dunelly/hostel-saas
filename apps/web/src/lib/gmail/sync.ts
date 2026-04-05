@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import { settings } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
 import { parseHostelworldEmail, parseHostelworldCancellation } from "./parser";
+import { parseEmailWithGemini } from "./gemini-parser";
 import { importReservations } from "@/lib/services/reservation";
 import { autoAssign } from "@/lib/services/assignment";
 import { reservations, bedAssignments } from "@/lib/db/schema";
@@ -73,29 +74,9 @@ export async function getSyncStatus(): Promise<SyncStatusResponse> {
 }
 
 /** Start sync in the background — returns immediately, sync runs on the server. */
-export async function startSyncInBackground(): Promise<void> {
-  const row = await db.select().from(settings).where(eq(settings.key, "gmail_tokens")).get();
-  if (!row) throw new Error("Gmail not connected");
-
-  const current = await getSyncStatus();
-  if (current.status === "running") return;
-
-  await setSyncStatus("running");
-
-  // Fire and forget — Node.js keeps this running even after the HTTP response is sent
-  runGmailSync()
-    .then(async (result) => {
-      await setSyncResult(result);
-      await setSyncStatus("done");
-    })
-    .catch(async (err) => {
-      const message = err instanceof Error ? err.message : "Unknown error";
-      await setSyncResult({ error: message });
-      await setSyncStatus("error");
-    });
-}
-
 export async function runGmailSync(deep = false): Promise<SyncResult> {
+  const useGemini = !!process.env.GEMINI_API_KEY;
+
   const row = await db
     .select()
     .from(settings)
@@ -129,7 +110,7 @@ export async function runGmailSync(deep = false): Promise<SyncResult> {
 
   if (deep) {
     query = 'from:hostelworld.com subject:(booking OR reservation OR cancellation OR cancelled)';
-    maxEmails = 500;
+    maxEmails = 300;
   } else {
     // Incremental: only scan emails since last sync (or last 7 days on first run)
     let afterDate: string;
@@ -178,8 +159,8 @@ export async function runGmailSync(deep = false): Promise<SyncResult> {
   const cancellationIds: string[] = [];
   const parseErrors: string[] = [];
 
-  // Fetch emails in parallel batches of 10
-  await batchAll(messages, 10, async (msg) => {
+  // Fetch emails in batches (smaller when using Gemini due to API rate limits)
+  await batchAll(messages, useGemini ? 3 : 10, async (msg) => {
     try {
       const full = await gmail.users.messages.get({ userId: "me", id: msg.id!, format: "full" });
       const headers = full.data.payload?.headers || [];
@@ -191,7 +172,25 @@ export async function runGmailSync(deep = false): Promise<SyncResult> {
       const isHostelworld = from.toLowerCase().includes("hostelworld.com");
       if (!isHostelworld) return;
 
-      // Check for cancellation first
+      // Try Gemini AI parser first, fall back to regex
+      if (useGemini) {
+        try {
+          const { reservation, cancellationId } = await parseEmailWithGemini(subject, body);
+          if (cancellationId) {
+            cancellationIds.push(cancellationId);
+            return;
+          }
+          if (reservation && reservation.externalId && reservation.guestName && reservation.checkIn && reservation.checkOut) {
+            if (existingIds.has(reservation.externalId)) return;
+            parsed.push(reservation as ReservationImport);
+            return;
+          }
+        } catch (err) {
+          // Gemini failed, fall through to regex
+        }
+      }
+
+      // Regex fallback
       const cancelledExternalId = parseHostelworldCancellation(subject, body);
       if (cancelledExternalId) {
         cancellationIds.push(cancelledExternalId);
@@ -201,7 +200,6 @@ export async function runGmailSync(deep = false): Promise<SyncResult> {
       const reservation = parseHostelworldEmail(subject, body);
 
       if (reservation && reservation.externalId && reservation.guestName && reservation.checkIn && reservation.checkOut) {
-        // Skip if already imported
         if (existingIds.has(reservation.externalId)) return;
         parsed.push(reservation as ReservationImport);
       }
@@ -245,6 +243,31 @@ export async function runGmailSync(deep = false): Promise<SyncResult> {
     if (importResult.newIds.length > 0) {
       await autoAssign(importResult.newIds);
     }
+
+    // Forward new reservations to mirror URL (e.g. localhost syncs → push to Vercel)
+    const mirrorUrl = process.env.MIRROR_SYNC_URL;
+    if (mirrorUrl && parsed.length > 0) {
+      try {
+        await fetch(`${mirrorUrl}/api/import`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ reservations: parsed }),
+        });
+      } catch (e) {
+        // Mirror sync is best-effort, don't fail the main sync
+      }
+    }
+
+    // Forward cancellations to mirror URL
+    if (mirrorUrl && cancellationIds.length > 0) {
+      try {
+        await fetch(`${mirrorUrl}/api/reservations/cancel`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ externalIds: [...new Set(cancellationIds)] }),
+        });
+      } catch (e) {}
+    }
   }
 
   // Record last sync time
@@ -258,7 +281,7 @@ export async function runGmailSync(deep = false): Promise<SyncResult> {
 
   const parts = [`Synced ${importResult.newIds.length} new`, `${importResult.duplicateCount} already existed`];
   if (cancelledCount > 0) parts.push(`${cancelledCount} cancelled`);
-  parts.push(`(${messages.length} emails scanned)`);
+  parts.push(`(${messages.length} emails scanned${useGemini ? ", AI-powered" : ""})`);
 
   return {
     imported: importResult.newIds.length,

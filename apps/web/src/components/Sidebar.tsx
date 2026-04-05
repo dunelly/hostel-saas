@@ -12,6 +12,9 @@ import {
   ChevronRight,
   MapPin,
   Shirt,
+  Calendar,
+  Users,
+  DollarSign,
 } from "lucide-react";
 import { useState } from "react";
 import { useLang } from "@/contexts/LanguageContext";
@@ -27,6 +30,8 @@ export function Sidebar() {
     { href: "/reservations", label: t("nav_reservations"), icon: ClipboardList },
     { href: "/tours", label: t("nav_tours"), icon: MapPin },
     { href: "/laundry", label: t("nav_laundry"), icon: Shirt },
+    { href: "/payments", label: "Payments", icon: DollarSign },
+    { href: "/schedule", label: "Schedule", icon: Calendar },
     { href: "/settings", label: "Settings", icon: Settings },
   ];
 

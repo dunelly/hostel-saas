@@ -1,4 +1,4 @@
-import { sqliteTable, text, integer, real, uniqueIndex } from "drizzle-orm/sqlite-core";
+import { sqliteTable, text, integer, real, uniqueIndex, index } from "drizzle-orm/sqlite-core";
 
 export const rooms = sqliteTable("rooms", {
   id: text("id").primaryKey(), // e.g. "1A", "2A", "4B"
@@ -49,6 +49,7 @@ export const reservations = sqliteTable(
     currency: text("currency").default("VND"),
     paymentStatus: text("payment_status").notNull().default("unpaid"), // "paid" | "unpaid" | "partial" | "refunded"
     amountPaid: real("amount_paid").default(0),
+    paymentMethod: text("payment_method"), // "cash" | "card" | "transfer" | null
     status: text("status").notNull().default("confirmed"),
     rawData: text("raw_data"), // JSON blob
     importedAt: text("imported_at").notNull().default("(datetime('now'))"),
@@ -76,6 +77,7 @@ export const bedAssignments = sqliteTable(
   },
   (table) => [
     uniqueIndex("unique_bed_date").on(table.bedId, table.date),
+    index("idx_assignments_date").on(table.date),
   ]
 );
 
@@ -124,6 +126,35 @@ export const laundryOrders = sqliteTable("laundry_orders", {
   status: text("status").notNull().default("pending"), // "pending" | "washing" | "done" | "collected"
   droppedOffAt: text("dropped_off_at").notNull().default("(datetime('now'))"),
   completedAt: text("completed_at"),
+});
+
+// ─── Staff Schedule ──────────────────────────────────────────────────────────
+export const staff = sqliteTable("staff", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  name: text("name").notNull(),
+  color: text("color").notNull().default("#6366f1"), // display color
+  active: integer("active").notNull().default(1),
+  createdAt: text("created_at").notNull().default("(datetime('now'))"),
+});
+
+export const shifts = sqliteTable("shifts", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  staffId: integer("staff_id")
+    .notNull()
+    .references(() => staff.id),
+  date: text("date").notNull(), // ISO date
+  shiftType: text("shift_type").notNull(), // "morning" | "afternoon" | "evening"
+  note: text("note"), // e.g. "FML dinner"
+  createdAt: text("created_at").notNull().default("(datetime('now'))"),
+});
+
+export const daysOff = sqliteTable("days_off", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  staffId: integer("staff_id")
+    .notNull()
+    .references(() => staff.id),
+  date: text("date").notNull(),
+  createdAt: text("created_at").notNull().default("(datetime('now'))"),
 });
 
 // Key-value store for app settings (Gmail OAuth token, etc.)

@@ -3,16 +3,16 @@ import { db } from "@/lib/db";
 import { reservations, bedAssignments } from "@/lib/db/schema";
 import { eq, inArray, and } from "drizzle-orm";
 
-const API_KEY = process.env.IMPORT_API_KEY || "hostel-dev-key";
-
 export async function POST(request: NextRequest) {
   try {
-    const body = await request.json();
-    const { externalIds, apiKey } = body;
-
-    if (apiKey !== API_KEY) {
+    const expectedKey = process.env.IMPORT_API_KEY;
+    const providedKey = request.headers.get("x-api-key");
+    if (!expectedKey || providedKey !== expectedKey) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
+
+    const body = await request.json();
+    const { externalIds } = body;
 
     if (!Array.isArray(externalIds) || externalIds.length === 0) {
       return NextResponse.json({ error: "externalIds must be a non-empty array" }, { status: 400 });

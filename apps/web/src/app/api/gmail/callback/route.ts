@@ -2,10 +2,12 @@ import { NextRequest, NextResponse } from "next/server";
 import { getOAuthClient } from "@/lib/gmail/oauth";
 import { db } from "@/lib/db";
 import { settings } from "@/lib/db/schema";
+import { eq } from "drizzle-orm";
 
 export async function GET(request: NextRequest) {
   const code = request.nextUrl.searchParams.get("code");
   const error = request.nextUrl.searchParams.get("error");
+  const state = request.nextUrl.searchParams.get("state");
 
   if (error) {
     return NextResponse.redirect(
@@ -16,6 +18,22 @@ export async function GET(request: NextRequest) {
   if (!code) {
     return NextResponse.json({ error: "No code returned from Google" }, { status: 400 });
   }
+
+  // Verify CSRF state
+  const storedState = await db
+    .select({ value: settings.value })
+    .from(settings)
+    .where(eq(settings.key, "gmail_oauth_state"))
+    .then((rows) => rows[0]?.value);
+
+  if (!state || !storedState || state !== storedState) {
+    return NextResponse.redirect(
+      new URL("/settings?gmail_error=invalid_state", request.url)
+    );
+  }
+
+  // Clear used state
+  await db.delete(settings).where(eq(settings.key, "gmail_oauth_state"));
 
   try {
     const client = getOAuthClient();

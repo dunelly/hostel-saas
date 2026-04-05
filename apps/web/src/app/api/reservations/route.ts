@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { reservations, guests } from "@/lib/db/schema";
+import { reservations, guests, bedAssignments } from "@/lib/db/schema";
 import { eq, and, gte, lte, desc } from "drizzle-orm";
 import { manualReservationSchema } from "@/lib/utils/validation";
 import { autoAssign } from "@/lib/services/assignment";
@@ -40,7 +40,36 @@ export async function GET(request: NextRequest) {
       .where(conditions.length > 0 ? and(...conditions) : undefined)
       .orderBy(desc(reservations.checkIn));
 
-    return NextResponse.json(result);
+    // Add bed assignment info
+    const resIds = result.map((r) => r.id);
+    const allAssignments = resIds.length > 0
+      ? await db
+          .select({ reservationId: bedAssignments.reservationId, bedId: bedAssignments.bedId })
+          .from(bedAssignments)
+          .where(eq(bedAssignments.date, result[0]?.checkIn || ""))
+      : [];
+
+    // Build a map: reservationId -> first bedId
+    const bedMap = new Map<number, string>();
+    for (const a of allAssignments) {
+      if (!bedMap.has(a.reservationId)) bedMap.set(a.reservationId, a.bedId);
+    }
+
+    // Fallback: for reservations without a matching date, do individual lookups
+    const enriched = await Promise.all(result.map(async (r) => {
+      let bedId = bedMap.get(r.id) || null;
+      if (!bedId) {
+        const bed = await db
+          .select({ bedId: bedAssignments.bedId })
+          .from(bedAssignments)
+          .where(eq(bedAssignments.reservationId, r.id))
+          .limit(1);
+        bedId = bed[0]?.bedId ?? null;
+      }
+      return { ...r, bedId };
+    }));
+
+    return NextResponse.json(enriched);
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown error";
     return NextResponse.json({ error: message }, { status: 500 });

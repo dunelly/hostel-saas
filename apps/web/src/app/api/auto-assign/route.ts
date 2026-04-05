@@ -11,7 +11,24 @@ export async function POST(request: NextRequest) {
 
     let idsToAssign: number[];
 
-    if (reservationId) {
+    const reassignAll = body?.reassignAll === true;
+    const reservationIds = body?.reservationIds as number[] | undefined;
+
+    if (reassignAll) {
+      // Clear ALL auto-assignments and re-assign everything
+      await db.delete(bedAssignments).where(eq(bedAssignments.isManual, 0));
+      const all = await db.select({ id: reservations.id }).from(reservations)
+        .where(eq(reservations.status, "confirmed"));
+      idsToAssign = all.map((r) => r.id);
+    } else if (reservationIds?.length) {
+      // Re-assign specific reservations: delete their auto-assignments first
+      for (const rid of reservationIds) {
+        await db.delete(bedAssignments).where(
+          and(eq(bedAssignments.reservationId, rid), eq(bedAssignments.isManual, 0))
+        );
+      }
+      idsToAssign = reservationIds;
+    } else if (reservationId) {
       // Re-assign a specific reservation: only delete auto assignments, keep manual ones
       await db
         .delete(bedAssignments)
@@ -23,27 +40,18 @@ export async function POST(request: NextRequest) {
         );
       idsToAssign = [reservationId];
     } else {
-      // Find all confirmed reservations that have no bed assignments
+      // Find all confirmed reservations that have no bed assignments — single query
       const unassigned = await db
         .select({ id: reservations.id })
         .from(reservations)
+        .leftJoin(bedAssignments, eq(reservations.id, bedAssignments.reservationId))
         .where(
-          eq(reservations.status, "confirmed")
+          and(
+            eq(reservations.status, "confirmed"),
+            sql`${bedAssignments.id} IS NULL`
+          )
         );
-
-      // Filter to those with no assignments
-      const unassignedIds: number[] = [];
-      for (const r of unassigned) {
-        const assignments = await db
-          .select({ id: bedAssignments.id })
-          .from(bedAssignments)
-          .where(eq(bedAssignments.reservationId, r.id))
-          .limit(1);
-        if (assignments.length === 0) {
-          unassignedIds.push(r.id);
-        }
-      }
-      idsToAssign = unassignedIds;
+      idsToAssign = unassigned.map((r) => r.id);
     }
 
     if (idsToAssign.length === 0) {

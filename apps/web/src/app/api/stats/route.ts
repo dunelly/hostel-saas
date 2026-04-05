@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { bedAssignments, beds, rooms, reservations, importLog } from "@/lib/db/schema";
+import { bedAssignments, beds, rooms, reservations, guests, importLog } from "@/lib/db/schema";
 import { and, gte, lte, eq, desc, count, sql } from "drizzle-orm";
 import { eachDayOfInterval, parseISO, format } from "date-fns";
 
@@ -17,7 +17,9 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    // Total beds
+    // Total rooms and beds
+    const allRooms = await db.select().from(rooms);
+    const totalRooms = allRooms.length;
     const allBeds = await db.select().from(beds);
     const totalBeds = allBeds.length;
 
@@ -54,27 +56,125 @@ export async function GET(request: NextRequest) {
       .orderBy(desc(importLog.importedAt))
       .limit(5);
 
-    // Unassigned count
-    const confirmed = await db
-      .select({ id: reservations.id })
+    // Unassigned count — single query with LEFT JOIN instead of N+1
+    const unassignedResult = await db
+      .select({ count: count() })
       .from(reservations)
-      .where(eq(reservations.status, "confirmed"));
+      .leftJoin(bedAssignments, eq(reservations.id, bedAssignments.reservationId))
+      .where(
+        and(
+          eq(reservations.status, "confirmed"),
+          sql`${bedAssignments.id} IS NULL`
+        )
+      );
+    const unassignedCount = unassignedResult[0]?.count ?? 0;
 
-    let unassignedCount = 0;
-    for (const r of confirmed) {
-      const a = await db
-        .select({ id: bedAssignments.id })
+    // Today's arrivals, departures, unpaid
+    const today = format(new Date(), "yyyy-MM-dd");
+
+    const todayArrivals = await db
+      .select({
+        id: reservations.id,
+        guestId: reservations.guestId,
+        guestName: guests.name,
+        checkIn: reservations.checkIn,
+        checkOut: reservations.checkOut,
+        status: reservations.status,
+        paymentStatus: reservations.paymentStatus,
+        totalPrice: reservations.totalPrice,
+        amountPaid: reservations.amountPaid,
+        source: reservations.source,
+      })
+      .from(reservations)
+      .innerJoin(guests, eq(reservations.guestId, guests.id))
+      .where(
+        and(
+          eq(reservations.checkIn, today),
+          sql`${reservations.status} IN ('confirmed', 'checked_in')`
+        )
+      );
+
+    // Get bed assignments for arrivals
+    for (const arrival of todayArrivals) {
+      const bed = await db
+        .select({ bedId: bedAssignments.bedId })
         .from(bedAssignments)
-        .where(eq(bedAssignments.reservationId, r.id))
+        .where(eq(bedAssignments.reservationId, arrival.id))
         .limit(1);
-      if (a.length === 0) unassignedCount++;
+      (arrival as Record<string, unknown>).bedId = bed[0]?.bedId ?? null;
+    }
+
+    const todayDepartures = await db
+      .select({
+        id: reservations.id,
+        guestId: reservations.guestId,
+        guestName: guests.name,
+        checkIn: reservations.checkIn,
+        checkOut: reservations.checkOut,
+        status: reservations.status,
+        paymentStatus: reservations.paymentStatus,
+        totalPrice: reservations.totalPrice,
+        amountPaid: reservations.amountPaid,
+        source: reservations.source,
+      })
+      .from(reservations)
+      .innerJoin(guests, eq(reservations.guestId, guests.id))
+      .where(
+        and(
+          eq(reservations.checkOut, today),
+          sql`${reservations.status} IN ('checked_in', 'checked_out')`
+        )
+      );
+
+    for (const dep of todayDepartures) {
+      const bed = await db
+        .select({ bedId: bedAssignments.bedId })
+        .from(bedAssignments)
+        .where(eq(bedAssignments.reservationId, dep.id))
+        .limit(1);
+      (dep as Record<string, unknown>).bedId = bed[0]?.bedId ?? null;
+    }
+
+    const unpaidInHouse = await db
+      .select({
+        id: reservations.id,
+        guestId: reservations.guestId,
+        guestName: guests.name,
+        checkIn: reservations.checkIn,
+        checkOut: reservations.checkOut,
+        status: reservations.status,
+        paymentStatus: reservations.paymentStatus,
+        totalPrice: reservations.totalPrice,
+        amountPaid: reservations.amountPaid,
+        source: reservations.source,
+      })
+      .from(reservations)
+      .innerJoin(guests, eq(reservations.guestId, guests.id))
+      .where(
+        and(
+          eq(reservations.status, "checked_in"),
+          sql`${reservations.paymentStatus} != 'paid'`
+        )
+      );
+
+    for (const guest of unpaidInHouse) {
+      const bed = await db
+        .select({ bedId: bedAssignments.bedId })
+        .from(bedAssignments)
+        .where(eq(bedAssignments.reservationId, guest.id))
+        .limit(1);
+      (guest as Record<string, unknown>).bedId = bed[0]?.bedId ?? null;
     }
 
     return NextResponse.json({
       totalBeds,
+      totalRooms,
       occupancyByDate,
       recentImports,
       unassignedCount,
+      todayArrivals,
+      todayDepartures,
+      unpaidInHouse,
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown error";

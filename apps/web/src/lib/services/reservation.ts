@@ -1,6 +1,6 @@
 import { db } from "@/lib/db";
 import { guests, reservations } from "@/lib/db/schema";
-import { eq, and } from "drizzle-orm";
+import { eq, and, sql } from "drizzle-orm";
 import type { ReservationImport } from "@/types";
 
 // ─── Currency conversion to VND ───────────────────────────────────────────────
@@ -71,11 +71,12 @@ export async function importReservations(
         }
       }
 
-      // Upsert guest by name
+      // Upsert guest by name (case-insensitive)
+      const trimmedName = imp.guestName.trim();
       let guest = await db
         .select()
         .from(guests)
-        .where(eq(guests.name, imp.guestName));
+        .where(sql`lower(${guests.name}) = lower(${trimmedName})`);
 
       let guestId: number;
       if (guest.length > 0) {
@@ -83,7 +84,7 @@ export async function importReservations(
       } else {
         const result = await db
           .insert(guests)
-          .values({ name: imp.guestName })
+          .values({ name: trimmedName })
           .returning({ id: guests.id });
         guestId = result[0].id;
       }

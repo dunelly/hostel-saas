@@ -13,6 +13,7 @@ import {
   Users,
   BedDouble,
   Hash,
+  Download,
 } from "lucide-react";
 
 interface Reservation {
@@ -31,6 +32,7 @@ interface Reservation {
   amountPaid: number | null;
   status: string;
   importedAt: string;
+  bedId?: string | null;
 }
 
 export default function ReservationsPage() {
@@ -46,16 +48,6 @@ export default function ReservationsPage() {
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
   const [selectedReservation, setSelectedReservation] =
     useState<Reservation | null>(null);
-
-  const resetMutation = useMutation({
-    mutationFn: () =>
-      fetch("/api/reset", { method: "DELETE" }).then((r) => r.json()),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["reservations"] });
-      queryClient.invalidateQueries({ queryKey: ["assignments"] });
-      queryClient.invalidateQueries({ queryKey: ["stats"] });
-    },
-  });
 
   const { data: reservations = [], isLoading } = useQuery<Reservation[]>({
     queryKey: ["reservations"],
@@ -219,14 +211,19 @@ export default function ReservationsPage() {
         <div className="flex items-center gap-2">
           <button
             onClick={() => {
-              if (confirm("Clear ALL reservations, guests, and bed assignments? This cannot be undone.")) {
-                resetMutation.mutate();
-              }
+              const headers = ["Guest","Check-in","Check-out","Bed","Room Type","Guests","Source","Payment","Status"];
+              const rows = filtered.map(r => [r.guestName,r.checkIn,r.checkOut,r.bedId||"",r.roomTypeReq,r.numGuests,r.source,r.paymentStatus,r.status]);
+              const csv = [headers,...rows].map(r => r.map(c => `"${String(c).replace(/"/g,'""')}"`).join(",")).join("\n");
+              const blob = new Blob([csv], { type: "text/csv" });
+              const a = document.createElement("a");
+              a.href = URL.createObjectURL(blob);
+              a.download = `reservations-${new Date().toISOString().split("T")[0]}.csv`;
+              a.click();
             }}
-            disabled={resetMutation.isPending}
-            className="flex items-center gap-2 px-4 py-2.5 bg-red-50 text-red-600 text-sm font-medium rounded-lg hover:bg-red-100 border border-red-200 transition-colors shadow-sm disabled:opacity-50"
+            className="flex items-center gap-2 px-4 py-2.5 bg-slate-100 text-slate-700 text-sm font-medium rounded-lg hover:bg-slate-200 transition-colors"
           >
-            {resetMutation.isPending ? "Clearing..." : "Clear All Data"}
+            <Download size={16} />
+            Export
           </button>
           <button
             onClick={() => setShowForm(!showForm)}
@@ -364,6 +361,9 @@ export default function ReservationsPage() {
                 Dates
               </th>
               <th className="px-4 py-3 text-left text-[11px] font-semibold text-slate-500 uppercase tracking-wider">
+                Bed
+              </th>
+              <th className="px-4 py-3 text-left text-[11px] font-semibold text-slate-500 uppercase tracking-wider">
                 Room Type
               </th>
               <th className="px-4 py-3 text-center text-[11px] font-semibold text-slate-500 uppercase tracking-wider">
@@ -424,6 +424,13 @@ export default function ReservationsPage() {
                     <div className="text-[10px] text-slate-400">
                       {nights} night{nights > 1 ? "s" : ""}
                     </div>
+                  </td>
+                  <td className="px-4 py-3.5">
+                    {r.bedId ? (
+                      <span className="text-xs font-mono font-semibold text-slate-500 bg-slate-100 rounded-md px-2 py-0.5">{r.bedId}</span>
+                    ) : (
+                      <span className="text-xs text-slate-300">—</span>
+                    )}
                   </td>
                   <td className="px-4 py-3.5">
                     <span

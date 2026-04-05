@@ -4,7 +4,7 @@ import { useState, useEffect, useRef } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { format, addDays, parseISO } from "date-fns";
 import { useLang } from "@/contexts/LanguageContext";
-import { X, LogIn, LogOut, AlertCircle, CalendarPlus, Moon, Ban, UserX, Undo2, ChevronDown, Printer, Receipt } from "lucide-react";
+import { X, LogIn, LogOut, AlertCircle, CalendarPlus, Moon, Ban, UserX, Undo2, ChevronDown, Printer, Receipt, Pencil, StickyNote, Phone, Globe, CreditCard } from "lucide-react";
 
 interface TourItem {
   id: number;
@@ -45,6 +45,7 @@ interface GuestProfile {
   idNumber: string | null;
   phone: string | null;
   nationality: string | null;
+  notes: string | null;
   reservations: ResItem[];
   tours: TourItem[];
   laundry: LaundryItem[];
@@ -70,8 +71,9 @@ interface Reservation {
   currency: string | null;
   paymentStatus: string;
   amountPaid: number | null;
+  paymentMethod?: string | null;
   status: string;
-  bedId?: string;
+  bedId?: string | null;
 }
 
 interface Props {
@@ -106,6 +108,22 @@ export function GuestDetailPanel({ reservation, onClose }: Props) {
   const [showBill, setShowBill] = useState(false);
   const [mounted, setMounted] = useState(false);
   const [isClosing, setIsClosing] = useState(false);
+  // Check-in flow
+  const [showCheckinForm, setShowCheckinForm] = useState(false);
+  const [checkinId, setCheckinId] = useState("");
+  const [checkinNat, setCheckinNat] = useState("");
+  const [checkinPhone, setCheckinPhone] = useState("");
+  // Guest info edit
+  const [showGuestEdit, setShowGuestEdit] = useState(false);
+  const [editPhone, setEditPhone] = useState("");
+  const [editNat, setEditNat] = useState("");
+  const [editIdNum, setEditIdNum] = useState("");
+  const [editNotes, setEditNotes] = useState("");
+  // Checkout confirmation
+  const [showCheckoutConfirm, setShowCheckoutConfirm] = useState(false);
+  // Notes quick edit
+  const [showNotesEdit, setShowNotesEdit] = useState(false);
+  const [notesInput, setNotesInput] = useState("");
 
   useEffect(() => {
     const raf = requestAnimationFrame(() => requestAnimationFrame(() => setMounted(true)));
@@ -226,6 +244,19 @@ export function GuestDetailPanel({ reservation, onClose }: Props) {
     onError: (err: Error) => setExtendError(err.message),
   });
 
+  const guestUpdateMutation = useMutation({
+    mutationFn: (data: Record<string, unknown>) =>
+      fetch(`/api/guests/${reservation.guestId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+      }).then((r) => r.json()),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["guest-profile"] });
+      invalidateAll();
+    },
+  });
+
   const nights = Math.max(1, Math.round(
     (new Date(reservation.checkOut).getTime() - new Date(reservation.checkIn).getTime()) / 86400000
   ));
@@ -273,7 +304,7 @@ export function GuestDetailPanel({ reservation, onClose }: Props) {
       {/* Backdrop */}
       <div
         className={`fixed inset-0 z-40 transition-all duration-200 ${
-          isClosing || !mounted ? "bg-black/0 backdrop-blur-none" : "bg-black/40 backdrop-blur-[3px]"
+          isClosing || !mounted ? "bg-transparent" : "bg-transparent"
         }`}
         onClick={handleClose}
       />
@@ -350,11 +381,126 @@ export function GuestDetailPanel({ reservation, onClose }: Props) {
             </div>
           </div>
 
+          {/* ── GUEST INFO ── */}
+          {guestProfile && (
+            <div className="px-6 py-3 border-b border-stone-100">
+              {!showGuestEdit ? (
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] font-bold text-stone-400 uppercase tracking-widest">Guest Info</span>
+                    <button
+                      onClick={() => {
+                        setEditPhone(guestProfile.phone || "");
+                        setEditNat(guestProfile.nationality || "");
+                        setEditIdNum(guestProfile.idNumber || "");
+                        setEditNotes(guestProfile.notes || "");
+                        setShowGuestEdit(true);
+                      }}
+                      className="text-stone-300 hover:text-stone-500 transition-colors"
+                    >
+                      <Pencil size={12} />
+                    </button>
+                  </div>
+                  <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-stone-500">
+                    {guestProfile.nationality && (
+                      <span className="flex items-center gap-1"><Globe size={11} className="text-stone-400" />{guestProfile.nationality}</span>
+                    )}
+                    {guestProfile.phone && (
+                      <span className="flex items-center gap-1"><Phone size={11} className="text-stone-400" />{guestProfile.phone}</span>
+                    )}
+                    {guestProfile.idNumber && (
+                      <span className="text-stone-400 font-mono text-[11px]">ID: {guestProfile.idNumber}</span>
+                    )}
+                    {!guestProfile.nationality && !guestProfile.phone && !guestProfile.idNumber && (
+                      <span className="text-stone-300 italic">No guest info recorded</span>
+                    )}
+                  </div>
+                  {/* Notes */}
+                  {guestProfile.notes ? (
+                    <div className="flex items-start gap-1.5 mt-1">
+                      <StickyNote size={11} className="text-amber-400 shrink-0 mt-0.5" />
+                      <span className="text-xs text-stone-500 italic">{guestProfile.notes}</span>
+                    </div>
+                  ) : (
+                    <button
+                      onClick={() => { setNotesInput(""); setShowNotesEdit(true); }}
+                      className="text-[10px] text-stone-300 hover:text-stone-500 transition-colors mt-1"
+                    >
+                      + Add note
+                    </button>
+                  )}
+                  {showNotesEdit && (
+                    <div className="flex gap-2 mt-1.5">
+                      <input
+                        type="text"
+                        value={notesInput}
+                        onChange={(e) => setNotesInput(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" && notesInput.trim()) {
+                            guestUpdateMutation.mutate({ notes: notesInput.trim() });
+                            setShowNotesEdit(false);
+                          }
+                        }}
+                        placeholder="Add a note..."
+                        autoFocus
+                        className="flex-1 px-2.5 py-1.5 text-xs border border-stone-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-stone-800/10"
+                      />
+                      <button
+                        onClick={() => {
+                          if (notesInput.trim()) guestUpdateMutation.mutate({ notes: notesInput.trim() });
+                          setShowNotesEdit(false);
+                        }}
+                        className="text-xs font-semibold text-stone-600 px-2"
+                      >
+                        Save
+                      </button>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div className="space-y-2.5">
+                  <div className="text-[10px] font-bold text-stone-400 uppercase tracking-widest">Edit Guest Info</div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <input type="text" value={editNat} onChange={(e) => setEditNat(e.target.value)} placeholder="Nationality" list="nationalities" className="px-2.5 py-2 text-xs border border-stone-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-stone-800/10" />
+                    <input type="tel" value={editPhone} onChange={(e) => setEditPhone(e.target.value)} placeholder="Phone" className="px-2.5 py-2 text-xs border border-stone-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-stone-800/10" />
+                    <input type="text" value={editIdNum} onChange={(e) => setEditIdNum(e.target.value)} placeholder="Passport / ID" className="col-span-2 px-2.5 py-2 text-xs border border-stone-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-stone-800/10" />
+                    <textarea value={editNotes} onChange={(e) => setEditNotes(e.target.value)} placeholder="Notes" rows={2} className="col-span-2 px-2.5 py-2 text-xs border border-stone-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-stone-800/10 resize-none" />
+                  </div>
+                  <datalist id="nationalities">
+                    {["Vietnam", "Australia", "UK", "USA", "Germany", "France", "Japan", "South Korea", "China", "Canada", "Netherlands", "Sweden", "Denmark", "Norway", "Italy", "Spain", "Brazil", "India", "Thailand", "Singapore", "Malaysia", "Indonesia", "Philippines", "New Zealand", "Ireland", "Belgium", "Switzerland", "Austria", "Poland", "Czech Republic", "Israel", "Russia", "Colombia", "Argentina", "Mexico", "Chile", "South Africa", "Taiwan", "Hong Kong"].map(n => (
+                      <option key={n} value={n} />
+                    ))}
+                  </datalist>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => {
+                        guestUpdateMutation.mutate({
+                          nationality: editNat || null,
+                          phone: editPhone || null,
+                          idNumber: editIdNum || null,
+                          notes: editNotes || null,
+                        });
+                        setShowGuestEdit(false);
+                      }}
+                      disabled={guestUpdateMutation.isPending}
+                      className="px-4 py-2 bg-stone-800 text-white text-xs font-bold rounded-lg hover:bg-stone-900 transition-colors disabled:opacity-50"
+                    >
+                      Save
+                    </button>
+                    <button onClick={() => setShowGuestEdit(false)} className="text-xs text-stone-400 hover:text-stone-600 px-2 transition-colors">
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
           {/* ── PRIMARY ACTION ── */}
           <div className="px-6 py-5">
-            {isConfirmed && (
+            {isConfirmed && !showCheckinForm && (
               <button
-                onClick={() => updateMutation.mutate({ status: "checked_in" })}
+                onClick={() => setShowCheckinForm(true)}
                 disabled={isBusy}
                 className="w-full py-4 rounded-2xl text-white text-base font-bold tracking-wide flex items-center justify-center gap-3 active:scale-[0.98] transition-all duration-150 disabled:opacity-50"
                 style={{
@@ -366,23 +512,139 @@ export function GuestDetailPanel({ reservation, onClose }: Props) {
                 Check In
               </button>
             )}
-            {isCheckedIn && (
+            {isConfirmed && showCheckinForm && (
+              <div className="rounded-2xl border border-emerald-200 bg-emerald-50/50 p-4 space-y-3">
+                <div className="text-xs font-bold text-emerald-700 uppercase tracking-wider">Guest Info</div>
+                <div className="grid grid-cols-2 gap-2">
+                  <input
+                    type="text"
+                    value={checkinId}
+                    onChange={(e) => setCheckinId(e.target.value)}
+                    placeholder="Passport / ID"
+                    autoFocus
+                    className="col-span-2 px-3 py-2.5 text-sm border border-stone-200 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-400"
+                  />
+                  <input
+                    type="text"
+                    value={checkinNat}
+                    onChange={(e) => setCheckinNat(e.target.value)}
+                    placeholder="Nationality"
+                    list="nationalities"
+                    className="px-3 py-2.5 text-sm border border-stone-200 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-400"
+                  />
+                  <input
+                    type="tel"
+                    value={checkinPhone}
+                    onChange={(e) => setCheckinPhone(e.target.value)}
+                    placeholder="Phone"
+                    className="px-3 py-2.5 text-sm border border-stone-200 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-400"
+                  />
+                </div>
+                <datalist id="nationalities">
+                  {["Vietnam", "Australia", "UK", "USA", "Germany", "France", "Japan", "South Korea", "China", "Canada", "Netherlands", "Sweden", "Denmark", "Norway", "Italy", "Spain", "Brazil", "India", "Thailand", "Singapore", "Malaysia", "Indonesia", "Philippines", "New Zealand", "Ireland", "Belgium", "Switzerland", "Austria", "Poland", "Czech Republic", "Israel", "Russia", "Colombia", "Argentina", "Mexico", "Chile", "South Africa", "Taiwan", "Hong Kong"].map(n => (
+                    <option key={n} value={n} />
+                  ))}
+                </datalist>
+                <div className="flex gap-2">
+                  <button
+                    onClick={async () => {
+                      if (reservation.guestId && (checkinId || checkinNat || checkinPhone)) {
+                        await guestUpdateMutation.mutateAsync({
+                          ...(checkinId && { idNumber: checkinId }),
+                          ...(checkinNat && { nationality: checkinNat }),
+                          ...(checkinPhone && { phone: checkinPhone }),
+                        });
+                      }
+                      updateMutation.mutate({ status: "checked_in" });
+                      setShowCheckinForm(false);
+                    }}
+                    disabled={isBusy}
+                    className="flex-1 py-3 rounded-xl text-white text-sm font-bold flex items-center justify-center gap-2 active:scale-[0.98] transition-all disabled:opacity-50"
+                    style={{ background: "#059669" }}
+                  >
+                    <LogIn size={16} />
+                    Confirm Check In
+                  </button>
+                  <button
+                    onClick={() => {
+                      updateMutation.mutate({ status: "checked_in" });
+                      setShowCheckinForm(false);
+                    }}
+                    disabled={isBusy}
+                    className="px-4 py-3 rounded-xl text-stone-400 text-sm hover:text-stone-600 transition-colors"
+                  >
+                    Skip
+                  </button>
+                </div>
+              </div>
+            )}
+            {isCheckedIn && !showCheckoutConfirm && (
               <button
-                onClick={() => updateMutation.mutate({ status: "checked_out" })}
+                onClick={() => {
+                  if (debt > 0) {
+                    setShowCheckoutConfirm(true);
+                  } else {
+                    updateMutation.mutate({ status: "checked_out" });
+                    setShowBill(true);
+                  }
+                }}
                 disabled={isBusy}
                 className="w-full py-4 rounded-2xl text-white text-base font-bold tracking-wide flex items-center justify-center gap-3 active:scale-[0.98] transition-all duration-150 disabled:opacity-50"
                 style={{
-                  background: "linear-gradient(135deg, #1c1917, #292524)",
-                  boxShadow: "0 4px 24px rgba(28,25,23,0.3)",
+                  background: debt > 0
+                    ? "linear-gradient(135deg, #dc2626, #ef4444)"
+                    : "linear-gradient(135deg, #1c1917, #292524)",
+                  boxShadow: debt > 0
+                    ? "0 4px 24px rgba(220,38,38,0.3)"
+                    : "0 4px 24px rgba(28,25,23,0.3)",
                 }}
               >
                 <LogOut size={20} strokeWidth={2.5} />
-                Check Out
+                {debt > 0 ? `Check Out (${cur} ${debt.toLocaleString()} owed)` : "Check Out"}
               </button>
+            )}
+            {isCheckedIn && showCheckoutConfirm && (
+              <div className="rounded-2xl border border-red-200 bg-red-50/50 p-4 space-y-3">
+                <div className="text-xs font-bold text-red-600">
+                  Guest owes {cur} {debt.toLocaleString()}
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => {
+                      updateMutation.mutate({ amountPaid: totalPrice, paymentStatus: "paid", status: "checked_out" });
+                      setShowCheckoutConfirm(false);
+                      setShowBill(true);
+                    }}
+                    disabled={isBusy}
+                    className="flex-1 py-3 rounded-xl text-white text-sm font-bold flex items-center justify-center gap-2 transition-all disabled:opacity-50"
+                    style={{ background: "#059669" }}
+                  >
+                    <CreditCard size={15} />
+                    Settle & Check Out
+                  </button>
+                  <button
+                    onClick={() => {
+                      updateMutation.mutate({ status: "checked_out" });
+                      setShowCheckoutConfirm(false);
+                      setShowBill(true);
+                    }}
+                    disabled={isBusy}
+                    className="flex-1 py-3 rounded-xl text-red-600 text-sm font-bold bg-red-100 hover:bg-red-200 flex items-center justify-center gap-2 transition-colors disabled:opacity-50"
+                  >
+                    Check Out Unpaid
+                  </button>
+                </div>
+                <button
+                  onClick={() => setShowCheckoutConfirm(false)}
+                  className="w-full text-xs text-stone-400 hover:text-stone-600 text-center transition-colors"
+                >
+                  Cancel
+                </button>
+              </div>
             )}
             {isCheckedOut && (
               <button
-                onClick={() => updateMutation.mutate({ status: "confirmed" })}
+                onClick={() => updateMutation.mutate({ status: "checked_in" })}
                 disabled={isBusy}
                 className="w-full py-3 rounded-xl text-stone-500 text-sm font-semibold bg-stone-100 hover:bg-stone-200 flex items-center justify-center gap-2 transition-colors"
               >
@@ -462,7 +724,7 @@ export function GuestDetailPanel({ reservation, onClose }: Props) {
 
                   {/* Quick payment input */}
                   {debt > 0 && isActive && (
-                    <div className="px-5 pb-4 pt-1">
+                    <div className="px-5 pb-4 pt-1 space-y-2">
                       <div className="flex gap-2">
                         <div className="relative flex-1">
                           <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs font-semibold text-stone-400">
@@ -487,6 +749,23 @@ export function GuestDetailPanel({ reservation, onClose }: Props) {
                         >
                           Add
                         </button>
+                      </div>
+                      {/* Payment method */}
+                      <div className="flex gap-1.5">
+                        {(["cash", "card", "transfer"] as const).map(m => (
+                          <button
+                            key={m}
+                            type="button"
+                            onClick={() => updateMutation.mutate({ paymentMethod: m })}
+                            className={`flex-1 py-1.5 rounded-lg text-[10px] font-semibold transition-colors capitalize ${
+                              reservation.paymentMethod === m
+                                ? "bg-stone-800 text-white"
+                                : "bg-stone-100 text-stone-500 hover:bg-stone-200"
+                            }`}
+                          >
+                            {m}
+                          </button>
+                        ))}
                       </div>
                     </div>
                   )}

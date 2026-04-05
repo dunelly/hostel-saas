@@ -7,6 +7,12 @@ import { importLog } from "@/lib/db/schema";
 
 export async function POST(request: NextRequest) {
   try {
+    const expectedKey = process.env.IMPORT_API_KEY;
+    const providedKey = request.headers.get("x-api-key");
+    if (!expectedKey || providedKey !== expectedKey) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
     const body = await request.json();
     const parsed = importRequestSchema.safeParse(body);
 
@@ -15,12 +21,6 @@ export async function POST(request: NextRequest) {
         { error: "Invalid request", details: parsed.error.issues },
         { status: 400 }
       );
-    }
-
-    // Optional API key check
-    const expectedKey = process.env.IMPORT_API_KEY;
-    if (expectedKey && parsed.data.apiKey !== expectedKey) {
-      return NextResponse.json({ error: "Invalid API key" }, { status: 401 });
     }
 
     // Import reservations

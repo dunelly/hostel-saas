@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { reservations, bedAssignments, beds, rooms } from "@/lib/db/schema";
-import { eq, and, ne, desc, gte, lte, inArray } from "drizzle-orm";
+import { reservations, bedAssignments } from "@/lib/db/schema";
+import { eq, and, ne, desc, gte, lte } from "drizzle-orm";
 import { z } from "zod";
 import { eachDayOfInterval, parseISO, format } from "date-fns";
 
@@ -175,42 +175,4 @@ export async function POST(request: NextRequest) {
     const message = error instanceof Error ? error.message : "Unknown error";
     return NextResponse.json({ error: message }, { status: 500 });
   }
-}
-
-// Find any free bed in eligible rooms for ALL given dates
-async function findFreeBed(roomTypeReq: string, dates: string[]): Promise<string | null> {
-  const eligibleRooms = await db
-    .select()
-    .from(rooms)
-    .where(
-      roomTypeReq === "female" ? eq(rooms.roomType, "female") : eq(rooms.roomType, "mixed")
-    );
-
-  const eligibleRoomIds = eligibleRooms.map((r) => r.id);
-  if (eligibleRoomIds.length === 0) return null;
-
-  const allBeds = await db
-    .select()
-    .from(beds)
-    .where(inArray(beds.roomId, eligibleRoomIds));
-
-  // Get all assignments in the date range
-  const existing = await db
-    .select()
-    .from(bedAssignments)
-    .where(
-      and(
-        gte(bedAssignments.date, dates[0]),
-        lte(bedAssignments.date, dates[dates.length - 1])
-      )
-    );
-
-  const occupied = new Set(existing.map((a) => `${a.bedId}:${a.date}`));
-
-  for (const bed of allBeds) {
-    const allFree = dates.every((d) => !occupied.has(`${bed.id}:${d}`));
-    if (allFree) return bed.id;
-  }
-
-  return null;
 }
