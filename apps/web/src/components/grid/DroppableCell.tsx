@@ -1,11 +1,11 @@
 "use client";
 
 import { useDroppable, useDndContext } from "@dnd-kit/core";
-import { useState } from "react";
+import React, { useState } from "react";
 import { QuickAddPopover } from "./QuickAddPopover";
 import type { Assignment } from "./BedGrid";
 
-export function DroppableCell({
+export const DroppableCell = React.memo(function DroppableCell({
   bedId,
   date,
   roomType,
@@ -75,4 +75,4 @@ export function DroppableCell({
       )}
     </div>
   );
-}
+});

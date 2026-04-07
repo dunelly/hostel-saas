@@ -18,6 +18,7 @@ import {
   DragOverlay,
   DragStartEvent,
   PointerSensor,
+  closestCenter,
   useSensor,
   useSensors,
 } from "@dnd-kit/core";
@@ -576,7 +577,12 @@ export function BedGrid() {
       )}
 
       {/* Grid */}
-      <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
+      <DndContext
+        sensors={sensors}
+        collisionDetection={closestCenter}
+        onDragStart={handleDragStart}
+        onDragEnd={handleDragEnd}
+      >
         <div className="overflow-auto max-h-[calc(100vh-7rem)] bg-white rounded-xl border border-slate-200 shadow-sm">
           <table className="w-full border-collapse">
             <thead className="sticky top-0 z-30">
@@ -727,7 +733,7 @@ export function BedGrid() {
   );
 }
 
-function RoomRows({
+const RoomRows = React.memo(function RoomRows({
   room,
   dates,
   assignmentMap,
@@ -855,7 +861,7 @@ function RoomRows({
         ))}
     </>
   );
-}
+});
 
 function SkeletonRows({ numDays }: { numDays: number }) {
   const skeletonRooms = [{ beds: 4 }, { beds: 3 }, { beds: 5 }];

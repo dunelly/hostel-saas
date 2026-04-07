@@ -1,7 +1,7 @@
 "use client";
 
-import { useDraggable, useDroppable } from "@dnd-kit/core";
-import { useCallback } from "react";
+import { useDraggable, useDroppable, useDndContext } from "@dnd-kit/core";
+import React, { useCallback } from "react";
 import type { Assignment, CellPosition } from "./BedGrid";
 
 // Source accent bar colors (left stripe)
@@ -34,7 +34,7 @@ function getCellStyle(status: string) {
   }
 }
 
-export function GuestCell({
+export const GuestCell = React.memo(function GuestCell({
   assignment,
   position,
   isSelected,
@@ -198,5 +198,4 @@ export function GuestCell({
 
     </div>
   );
-}
-
+});
