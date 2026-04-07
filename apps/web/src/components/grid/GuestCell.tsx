@@ -128,7 +128,7 @@ export const GuestCell = React.memo(function GuestCell({
       {...listeners}
       style={style}
       className={`relative group h-full flex items-center py-1 cursor-grab active:cursor-grabbing ${
-        isDragging || isExtending ? "opacity-30" : dimClass
+        isDragging || isExtending ? "opacity-25" : dimClass
       }`}
       title={showName ? `${assignment.guestName} · ${assignment.checkIn} → ${assignment.checkOut} · ${assignment.source}` : undefined}
       onClick={(e) => {
@@ -141,13 +141,13 @@ export const GuestCell = React.memo(function GuestCell({
       }}
     >
       <div
-        className={`w-full h-7 flex items-center ${radiusClass} ${colors.bg} border ${colors.border} ${borderStyle} ${
-          isSelected
-            ? "ring-2 ring-indigo-500 ring-offset-1"
-            : assignment.isManual
-              ? "ring-1 ring-amber-400"
-              : ""
-        } transition-shadow`}
+        className={`w-full h-7 flex items-center ${radiusClass} border transition-shadow ${
+          isDragging || isExtending
+            ? "border-dashed border-blue-400 bg-transparent"
+            : `${colors.bg} ${colors.border} ${borderStyle} ${
+                isSelected ? "ring-2 ring-indigo-500 ring-offset-1" : assignment.isManual ? "ring-1 ring-amber-400" : ""
+              }`
+        }`}
       >
         {/* Source accent bar */}
         {(position === "start" || position === "single") && (

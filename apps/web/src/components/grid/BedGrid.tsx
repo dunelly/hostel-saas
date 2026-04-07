@@ -688,11 +688,12 @@ export function BedGrid() {
 
         <DragOverlay dropAnimation={null}>
           {draggedAssignment && !isExtendingOverlay && (
+            <GuestCellClone assignment={draggedAssignment} />
+          )}
+          {draggedAssignment && isExtendingOverlay && (
             <div className="bg-indigo-100 border border-indigo-300 text-indigo-800 shadow-xl text-xs px-2.5 py-1.5 rounded-lg flex items-center gap-1.5 font-medium">
               {draggedAssignment.guestName}
-              <span className="text-indigo-400 text-[10px]">
-                {dragMode === "night" ? `· ${draggedAssignment.date}` : "· full stay"}
-              </span>
+              <span className="text-indigo-400 text-[10px]">· extending</span>
             </div>
           )}
         </DragOverlay>
@@ -729,6 +730,48 @@ export function BedGrid() {
           onClose={() => setPanelAssignment(null)}
         />
       )}
+    </div>
+  );
+}
+
+// Pure visual clone of a GuestCell for the DragOverlay
+function GuestCellClone({ assignment }: { assignment: Assignment }) {
+  const sourceBarColors: Record<string, string> = {
+    "booking.com": "bg-blue-500",
+    hostelworld: "bg-orange-500",
+    manual: "bg-emerald-500",
+  };
+  const barColor = sourceBarColors[assignment.source] || "bg-slate-400";
+
+  const colors = (() => {
+    switch (assignment.status) {
+      case "checked_in":  return { bg: "bg-emerald-100", border: "border-emerald-300", text: "text-emerald-900" };
+      case "confirmed":   return { bg: "bg-blue-100",    border: "border-blue-300",    text: "text-blue-900"    };
+      case "checked_out": return { bg: "bg-slate-100",   border: "border-slate-200",   text: "text-slate-400"   };
+      default:            return { bg: "bg-blue-100",    border: "border-blue-300",    text: "text-blue-900"    };
+    }
+  })();
+
+  const payDot =
+    assignment.status !== "checked_out" &&
+    assignment.paymentStatus !== "paid" &&
+    assignment.paymentStatus !== "refunded"
+      ? assignment.paymentStatus === "partial" ? "bg-amber-400" : "bg-red-400"
+      : null;
+
+  return (
+    <div className="h-9 min-w-[90px] max-w-[200px] flex items-center py-1 cursor-grabbing opacity-95 drop-shadow-xl">
+      <div
+        className={`w-full h-7 flex items-center rounded-l ml-1 -mr-px ${colors.bg} border ${colors.border} border-solid`}
+      >
+        <div className={`w-1 h-full ${barColor} opacity-90 rounded-l flex-shrink-0`} />
+        <span className={`truncate text-xs font-semibold px-1.5 ${colors.text} flex-1 min-w-0`}>
+          {assignment.guestName}
+        </span>
+        {payDot && (
+          <span className={`w-1.5 h-1.5 rounded-full ${payDot} flex-shrink-0 mr-1.5`} />
+        )}
+      </div>
     </div>
   );
 }
