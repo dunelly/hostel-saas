@@ -82,6 +82,7 @@ export function BedGrid() {
   const [startDate, setStartDate] = useState(() => subDays(new Date(), 1));
   const [numDays, setNumDays] = useState(14);
   const [draggedAssignment, setDraggedAssignment] = useState<Assignment | null>(null);
+  const [dragCellWidth, setDragCellWidth] = useState<number | null>(null);
   const [selectedReservation, setSelectedReservation] = useState<number | null>(null);
   const [panelAssignment, setPanelAssignment] = useState<Assignment | null>(null);
   const [isExtendingOverlay, setIsExtendingOverlay] = useState(false);
@@ -138,6 +139,23 @@ export function BedGrid() {
         if (!r.ok) return r.json().then((err) => { throw new Error(err.error || "Failed to move"); });
         return r.json();
       }),
+    onMutate: async (data) => {
+      await queryClient.cancelQueries({ queryKey: ["assignments"] });
+      const qk = ["assignments", fromStr, toStr];
+      const prev = queryClient.getQueryData<Assignment[]>(qk);
+      queryClient.setQueryData<Assignment[]>(qk, (old = []) =>
+        old.map(a => {
+          if (a.reservationId !== data.reservationId) return a;
+          if (data.singleDate && a.date !== data.singleDate) return a;
+          return { ...a, bedId: data.newBedId };
+        })
+      );
+      return { prev, qk };
+    },
+    onError: (_err, _data, ctx: any) => {
+      if (ctx?.prev) queryClient.setQueryData(ctx.qk, ctx.prev);
+    },
+    onSettled: () => queryClient.invalidateQueries({ queryKey: ["assignments"] }),
   });
 
   const swapMutation = useMutation({
@@ -321,6 +339,9 @@ export function BedGrid() {
 
   function handleDragStart(event: DragStartEvent) {
     const data = event.active.data.current;
+    // Capture the rendered width of the single cell so the overlay can span the full stay
+    const cellW = event.active.rect.current.initial?.width ?? null;
+    setDragCellWidth(cellW);
     if (data?.type === "extend") {
       setDraggedAssignment(data.assignment);
       setIsExtendingOverlay(true);
@@ -333,6 +354,7 @@ export function BedGrid() {
 
   function handleDragEnd(event: DragEndEvent) {
     setDraggedAssignment(null);
+    setDragCellWidth(null);
     setIsExtendingOverlay(false);
 
     if (!event.over || !event.active.data.current) return;
@@ -698,9 +720,18 @@ export function BedGrid() {
         </div>
 
         <DragOverlay dropAnimation={dropAnimationConfig}>
-          {draggedAssignment && !isExtendingOverlay && (
-            <GuestCellClone assignment={draggedAssignment} />
-          )}
+          {draggedAssignment && !isExtendingOverlay && (() => {
+            // Width = number of visible nights × single cell width
+            let overlayWidth: number | undefined;
+            if (dragCellWidth) {
+              const visibleNights = dates.filter(d => {
+                const ds = format(d, "yyyy-MM-dd");
+                return ds >= draggedAssignment.checkIn && ds < draggedAssignment.checkOut;
+              }).length;
+              overlayWidth = (visibleNights || 1) * dragCellWidth;
+            }
+            return <GuestCellClone assignment={draggedAssignment} width={overlayWidth} />;
+          })()}
           {draggedAssignment && isExtendingOverlay && (
             <div className="bg-indigo-100 border border-indigo-300 text-indigo-800 shadow-xl text-xs px-2.5 py-1.5 rounded-lg flex items-center gap-1.5 font-medium">
               {draggedAssignment.guestName}
@@ -746,7 +777,7 @@ export function BedGrid() {
 }
 
 // Pure visual clone of a GuestCell for the DragOverlay
-function GuestCellClone({ assignment }: { assignment: Assignment }) {
+function GuestCellClone({ assignment, width }: { assignment: Assignment; width?: number }) {
   const sourceBarColors: Record<string, string> = {
     "booking.com": "bg-blue-500",
     hostelworld: "bg-orange-500",
@@ -774,9 +805,12 @@ function GuestCellClone({ assignment }: { assignment: Assignment }) {
       : null;
 
   return (
-    <div className="h-9 min-w-[90px] max-w-[200px] flex items-center py-1 cursor-grabbing opacity-95 drop-shadow-xl">
+    <div
+      className="h-9 flex items-center py-1 cursor-grabbing opacity-95 drop-shadow-xl"
+      style={width ? { width } : { minWidth: 90 }}
+    >
       <div
-        className={`w-full h-7 flex items-center rounded-l ml-1 -mr-px ${colors.bg} border ${colors.border} border-solid`}
+        className={`w-full h-7 flex items-center rounded ml-1 mr-1 ${colors.bg} border ${colors.border} border-solid`}
       >
         <div className={`w-1 h-full ${barColor} opacity-90 rounded-l flex-shrink-0`} />
         <span className={`truncate text-xs font-semibold px-1.5 ${colors.text} flex-1 min-w-0`}>
