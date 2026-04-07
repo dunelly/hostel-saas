@@ -59,10 +59,19 @@ export const GuestCell = React.memo(function GuestCell({
     });
 
   // Also register as a drop target so the extend handle can land here (for shrinking)
-  const { setNodeRef: setDropRef } = useDroppable({
+  const { setNodeRef: setDropRef, isOver } = useDroppable({
     id: `drop-${assignment.bedId}-${assignment.date}`,
     data: { bedId: assignment.bedId, date: assignment.date, type: "guest", reservationId: assignment.reservationId },
   });
+
+  const { active } = useDndContext();
+
+  // Show red only when hovered by your OWN drag (can't swap with yourself)
+  const isSelfConflict =
+    isOver &&
+    active !== null &&
+    active.data?.current?.type !== "extend" &&
+    active.data?.current?.reservationId === assignment.reservationId;
 
   // Stable composed ref — avoids infinite unregister/re-register loop
   const composedRef = useCallback(
@@ -144,9 +153,11 @@ export const GuestCell = React.memo(function GuestCell({
         className={`w-full h-7 flex items-center ${radiusClass} border transition-shadow ${
           isDragging || isExtending
             ? "border-dashed border-blue-400 bg-transparent"
-            : `${colors.bg} ${colors.border} ${borderStyle} ${
-                isSelected ? "ring-2 ring-indigo-500 ring-offset-1" : assignment.isManual ? "ring-1 ring-amber-400" : ""
-              }`
+            : isSelfConflict
+              ? "bg-red-950 border-red-500/60"
+              : `${colors.bg} ${colors.border} ${borderStyle} ${
+                  isSelected ? "ring-2 ring-indigo-500 ring-offset-1" : assignment.isManual ? "ring-1 ring-amber-400" : ""
+                }`
         }`}
       >
         {/* Source accent bar */}

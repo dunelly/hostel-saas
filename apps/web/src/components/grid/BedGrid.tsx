@@ -19,6 +19,7 @@ import {
   DragStartEvent,
   PointerSensor,
   closestCenter,
+  defaultDropAnimationSideEffects,
   useSensor,
   useSensors,
 } from "@dnd-kit/core";
@@ -65,6 +66,16 @@ export type CellPosition = "single" | "start" | "middle" | "end";
 
 // Accent colors for room rows (non-female rooms)
 const ROOM_ACCENT_COLORS = ["#8b5cf6", "#0ea5e9", "#f59e0b", "#10b981", "#f97316", "#6366f1"];
+
+const dropAnimationConfig = {
+  duration: 180,
+  easing: "cubic-bezier(0.2, 0, 0, 1)",
+  sideEffects: defaultDropAnimationSideEffects({
+    styles: {
+      active: { opacity: "0" },
+    },
+  }),
+};
 
 export function BedGrid() {
   const queryClient = useQueryClient();
@@ -686,7 +697,7 @@ export function BedGrid() {
           </table>
         </div>
 
-        <DragOverlay dropAnimation={null}>
+        <DragOverlay dropAnimation={dropAnimationConfig}>
           {draggedAssignment && !isExtendingOverlay && (
             <GuestCellClone assignment={draggedAssignment} />
           )}

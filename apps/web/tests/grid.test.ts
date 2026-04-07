@@ -144,4 +144,53 @@ describe("Bed Grid", () => {
     const bedCountRestored = await page.$$eval("tr[data-bed-id]", (rows) => rows.length);
     expect(bedCountRestored).toBe(bedCountBefore);
   });
+
+  it("drag overlay shows a cell-like element (not just a text pill)", async () => {
+    // Find a guest cell that has a reservation bar
+    const guestCell = await page.$(".reservation-bar, [class*='bg-emerald-100'], [class*='bg-blue-100']");
+    if (!guestCell) {
+      console.log("No guest cells found — skipping drag overlay test");
+      return;
+    }
+
+    const box = await guestCell.boundingBox();
+    if (!box) return;
+
+    // Start drag by holding pointer down
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    await page.mouse.down();
+    // Move far enough to activate drag (> 8px threshold)
+    await page.mouse.move(box.x + box.width / 2 + 20, box.y + box.height / 2);
+
+    // DragOverlay should appear — look for the clone with drop-shadow-xl class
+    const overlay = await page.waitForSelector(".drop-shadow-xl", { timeout: 3000 }).catch(() => null);
+    expect(overlay).not.toBeNull();
+
+    // Release
+    await page.mouse.up();
+  });
+
+  it("dropping on own cell is a no-op (no error toast appears)", async () => {
+    // Find a guest cell with a start position (has the name visible)
+    const guestCells = await page.$$("[class*='bg-emerald-100'], [class*='bg-blue-100']");
+    if (guestCells.length === 0) return;
+
+    const box = await guestCells[0].boundingBox();
+    if (!box) return;
+
+    const cx = box.x + box.width / 2;
+    const cy = box.y + box.height / 2;
+
+    // Drag from cell and drop back on itself
+    await page.mouse.move(cx, cy);
+    await page.mouse.down();
+    await page.mouse.move(cx + 20, cy); // activate drag
+    await page.mouse.move(cx, cy);       // drag back to source
+    await page.mouse.up();
+
+    // Wait briefly; no error toast should appear
+    await new Promise((r) => setTimeout(r, 400));
+    const errorToast = await page.$("[class*='bg-red'][class*='text-white'], .toast-error").catch(() => null);
+    expect(errorToast).toBeNull();
+  });
 });
