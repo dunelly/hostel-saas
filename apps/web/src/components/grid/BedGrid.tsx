@@ -748,12 +748,15 @@ function GuestCellClone({ assignment }: { assignment: Assignment }) {
       case "checked_in":  return { bg: "bg-emerald-100", border: "border-emerald-300", text: "text-emerald-900" };
       case "confirmed":   return { bg: "bg-blue-100",    border: "border-blue-300",    text: "text-blue-900"    };
       case "checked_out": return { bg: "bg-slate-100",   border: "border-slate-200",   text: "text-slate-400"   };
+      case "no_show":     return { bg: "bg-red-100",     border: "border-red-300",     text: "text-red-700"     };
+      case "cancelled":   return { bg: "bg-slate-50",    border: "border-slate-200",   text: "text-slate-300"   };
       default:            return { bg: "bg-blue-100",    border: "border-blue-300",    text: "text-blue-900"    };
     }
   })();
 
   const payDot =
     assignment.status !== "checked_out" &&
+    assignment.status !== "cancelled" &&
     assignment.paymentStatus !== "paid" &&
     assignment.paymentStatus !== "refunded"
       ? assignment.paymentStatus === "partial" ? "bg-amber-400" : "bg-red-400"
