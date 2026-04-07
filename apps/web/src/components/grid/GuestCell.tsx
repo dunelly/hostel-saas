@@ -148,7 +148,7 @@ export const GuestCell = React.memo(function GuestCell({
       {...listeners}
       style={style}
       className={`relative group h-full flex items-center py-1 cursor-grab active:cursor-grabbing ${
-        isDragging ? "opacity-0" : isGhosted || isExtending ? "opacity-25" : dimClass
+        isDragging ? "opacity-0" : isGhosted ? "opacity-25" : dimClass
       }`}
       title={showName ? `${assignment.guestName} · ${assignment.checkIn} → ${assignment.checkOut} · ${assignment.source}` : undefined}
       onClick={(e) => {
@@ -162,7 +162,7 @@ export const GuestCell = React.memo(function GuestCell({
     >
       <div
         className={`w-full h-7 flex items-center ${radiusClass} border transition-shadow ${
-          isDragging || isGhosted || isExtending
+          isDragging || isGhosted
             ? "border-transparent bg-transparent"
             : isSelfConflict
               ? "bg-red-950 border-red-500/60"
