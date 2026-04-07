@@ -9,10 +9,12 @@ export const DroppableCell = React.memo(function DroppableCell({
   bedId,
   date,
   roomType,
+  dragBedDates,
 }: {
   bedId: string;
   date: string;
   roomType: string;
+  dragBedDates: string[];
 }) {
   const [showAdd, setShowAdd] = useState(false);
   const { setNodeRef, isOver } = useDroppable({
@@ -36,10 +38,24 @@ export const DroppableCell = React.memo(function DroppableCell({
     date >= extendAssignment!.checkOut &&
     date <= hoverDate;
 
+  // Stay move preview: highlight cells on the target bed matching the dragged segment
+  const isMoveDrag = active !== null && !isExtendDrag;
+  const overBedId = over?.data?.current?.bedId as string | undefined;
+  const dragModeData = active?.data?.current?.dragMode as string | undefined;
+  const dragDate = active?.data?.current?.date as string | undefined;
+  const inMovePreview =
+    isMoveDrag &&
+    overBedId === bedId &&
+    overBedId !== active?.data?.current?.bedId && // not hovering own bed
+    (dragModeData === "night"
+      ? date === dragDate // night mode: only highlight the single dragged date
+      : dragBedDates.includes(date)); // stay mode: highlight only bed-specific dates
+
   let cellClass = "hover:bg-indigo-50/40";
   if (!isExtendDrag && isOver) {
-    cellClass =
-      "bg-indigo-100 rounded";
+    cellClass = "bg-indigo-200 rounded";
+  } else if (inMovePreview) {
+    cellClass = "bg-indigo-100/80 rounded";
   } else if (inExtendPreview) {
     // Ghost block — brighter on the cell under the cursor
     cellClass = isOver ? "bg-indigo-400/70 rounded" : "bg-indigo-200/80 rounded";

@@ -40,6 +40,9 @@ export const GuestCell = React.memo(function GuestCell({
   isSelected,
   isReturning,
   activeReservationId,
+  activeDragMode,
+  activeDragAssignmentId,
+  activeDragBedId,
   onSelect,
   onDoubleClick,
 }: {
@@ -48,6 +51,9 @@ export const GuestCell = React.memo(function GuestCell({
   isSelected: boolean;
   isReturning?: boolean;
   activeReservationId: number | null;
+  activeDragMode: "stay" | "night";
+  activeDragAssignmentId: number | null;
+  activeDragBedId: string | null;
   onSelect: () => void;
   onDoubleClick?: () => void;
 }) {
@@ -69,6 +75,11 @@ export const GuestCell = React.memo(function GuestCell({
   // Is this reservation currently being dragged (any cell of it)?
   // activeReservationId is passed as prop (not from useDndContext) to avoid defeating React.memo
   const isReservationDragged = activeReservationId === assignment.reservationId;
+  // Ghost only the cells being moved: stay mode → same bed, night mode → same cell
+  const isGhosted = isReservationDragged && (
+    (activeDragMode === "stay" && assignment.bedId === activeDragBedId) ||
+    assignment.id === activeDragAssignmentId
+  );
 
   // Show red only when hovered by your OWN drag (can't swap with yourself)
   const isSelfConflict = isOver && isReservationDragged;
@@ -137,7 +148,7 @@ export const GuestCell = React.memo(function GuestCell({
       {...listeners}
       style={style}
       className={`relative group h-full flex items-center py-1 cursor-grab active:cursor-grabbing ${
-        isDragging ? "opacity-0" : isReservationDragged || isExtending ? "opacity-25" : dimClass
+        isDragging ? "opacity-0" : isGhosted || isExtending ? "opacity-25" : dimClass
       }`}
       title={showName ? `${assignment.guestName} · ${assignment.checkIn} → ${assignment.checkOut} · ${assignment.source}` : undefined}
       onClick={(e) => {
@@ -151,10 +162,8 @@ export const GuestCell = React.memo(function GuestCell({
     >
       <div
         className={`w-full h-7 flex items-center ${radiusClass} border transition-shadow ${
-          isDragging
+          isDragging || isGhosted || isExtending
             ? "border-transparent bg-transparent"
-            : isReservationDragged || isExtending
-            ? "border-dashed border-blue-400 bg-transparent"
             : isSelfConflict
               ? "bg-red-950 border-red-500/60"
               : `${colors.bg} ${colors.border} ${borderStyle} ${

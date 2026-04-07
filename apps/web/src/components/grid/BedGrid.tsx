@@ -18,7 +18,7 @@ import {
   DragOverlay,
   DragStartEvent,
   PointerSensor,
-  closestCenter,
+  pointerWithin,
   defaultDropAnimationSideEffects,
   useSensor,
   useSensors,
@@ -87,6 +87,7 @@ export function BedGrid() {
   const [panelAssignment, setPanelAssignment] = useState<Assignment | null>(null);
   const [isExtendingOverlay, setIsExtendingOverlay] = useState(false);
   const [dragMode, setDragMode] = useState<"stay" | "night">("stay");
+  const [dragBedDates, setDragBedDates] = useState<string[]>([]);
   const [showPalette, setShowPalette] = useState(false);
   const [expandedPill, setExpandedPill] = useState<"arrivals" | "departures" | "unpaid" | null>(null);
 
@@ -146,6 +147,7 @@ export function BedGrid() {
       queryClient.setQueryData<Assignment[]>(qk, (old = []) =>
         old.map(a => {
           if (a.reservationId !== data.reservationId) return a;
+          if (data.fromBedId && a.bedId !== data.fromBedId) return a;
           if (data.singleDate && a.date !== data.singleDate) return a;
           return { ...a, bedId: data.newBedId };
         })
@@ -347,9 +349,16 @@ export function BedGrid() {
       setDraggedAssignment(data.assignment);
       setIsExtendingOverlay(true);
     } else if (data) {
-      setDraggedAssignment(data as Assignment);
+      const a = data as Assignment;
+      setDraggedAssignment(a);
       setIsExtendingOverlay(false);
       if (data.dragMode) setDragMode(data.dragMode as "stay" | "night");
+      // Compute bed-specific dates for this reservation segment
+      const bedDates = assignments
+        .filter(x => x.reservationId === a.reservationId && x.bedId === a.bedId && x.status !== "cancelled" && x.status !== "no_show")
+        .map(x => x.date)
+        .sort();
+      setDragBedDates(bedDates);
     }
   }
 
@@ -357,6 +366,7 @@ export function BedGrid() {
     setDraggedAssignment(null);
     setDragCellWidth(null);
     setIsExtendingOverlay(false);
+    setDragBedDates([]);
 
     if (!event.over || !event.active.data.current) return;
 
@@ -622,7 +632,7 @@ export function BedGrid() {
       {/* Grid */}
       <DndContext
         sensors={sensors}
-        collisionDetection={closestCenter}
+        collisionDetection={pointerWithin}
         onDragStart={handleDragStart}
         onDragEnd={handleDragEnd}
       >
@@ -723,6 +733,10 @@ export function BedGrid() {
                     colorIndex={roomIndex}
                     returningGuestIds={returningGuestIds}
                     activeReservationId={!isExtendingOverlay && draggedAssignment ? draggedAssignment.reservationId : null}
+                    activeDragMode={dragMode}
+                    activeDragAssignmentId={draggedAssignment?.id ?? null}
+                    activeDragBedId={draggedAssignment?.bedId ?? null}
+                    dragBedDates={dragBedDates}
                   />
                 ))
               )}
@@ -735,13 +749,20 @@ export function BedGrid() {
             // Width = number of nights visible in current window × single cell width
             let overlayWidth: number | undefined;
             if (dragCellWidth) {
-              const ci = draggedAssignment.checkIn;
-              const co = draggedAssignment.checkOut;
-              const visibleNights = dates.filter(d => {
-                const ds = format(d, "yyyy-MM-dd");
-                return ds >= ci && ds < co;
-              }).length;
-              overlayWidth = Math.max(1, visibleNights) * dragCellWidth;
+              if (dragMode === "night") {
+                // Single night drag — overlay is one cell wide
+                overlayWidth = dragCellWidth;
+              } else {
+                // Count nights on the specific bed being dragged, not the full reservation
+                const dragBedId = draggedAssignment.bedId;
+                const dragResId = draggedAssignment.reservationId;
+                const bedNights = assignments.filter(a =>
+                  a.reservationId === dragResId &&
+                  a.bedId === dragBedId &&
+                  a.status !== "cancelled" && a.status !== "no_show"
+                ).length;
+                overlayWidth = Math.max(1, bedNights) * dragCellWidth;
+              }
             }
             return <GuestCellClone assignment={draggedAssignment} width={overlayWidth} />;
           })()}
@@ -848,6 +869,10 @@ const RoomRows = React.memo(function RoomRows({
   colorIndex,
   returningGuestIds,
   activeReservationId,
+  activeDragMode,
+  activeDragAssignmentId,
+  activeDragBedId,
+  dragBedDates,
 }: {
   room: RoomWithBeds;
   dates: Date[];
@@ -859,6 +884,10 @@ const RoomRows = React.memo(function RoomRows({
   colorIndex: number;
   returningGuestIds: Set<number>;
   activeReservationId: number | null;
+  activeDragMode: "stay" | "night";
+  activeDragAssignmentId: number | null;
+  activeDragBedId: string | null;
+  dragBedDates: string[];
 }) {
   const [collapsed, setCollapsed] = useState(false);
   const isFemale = room.roomType === "female";
@@ -949,6 +978,9 @@ const RoomRows = React.memo(function RoomRows({
                       isSelected={selectedReservation === assignment.reservationId}
                       isReturning={returningGuestIds.has(assignment.guestId)}
                       activeReservationId={activeReservationId}
+                      activeDragMode={activeDragMode}
+                      activeDragAssignmentId={activeDragAssignmentId}
+                      activeDragBedId={activeDragBedId}
                       onSelect={() =>
                         onSelectReservation(
                           selectedReservation === assignment.reservationId
@@ -959,7 +991,7 @@ const RoomRows = React.memo(function RoomRows({
                       onDoubleClick={() => onOpenPanel(assignment)}
                     />
                   ) : (
-                    <DroppableCell bedId={bed.id} date={dateStr} roomType={room.roomType} />
+                    <DroppableCell bedId={bed.id} date={dateStr} roomType={room.roomType} dragBedDates={dragBedDates} />
                   )}
                 </td>
               );
