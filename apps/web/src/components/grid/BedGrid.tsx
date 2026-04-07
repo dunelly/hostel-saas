@@ -339,8 +339,9 @@ export function BedGrid() {
 
   function handleDragStart(event: DragStartEvent) {
     const data = event.active.data.current;
-    // Capture the rendered width of the single cell so the overlay can span the full stay
-    const cellW = event.active.rect.current.initial?.width ?? null;
+    // Measure a date column header — reliable way to get actual rendered column width
+    const dateHeader = document.querySelector("thead th:nth-child(2)");
+    const cellW = dateHeader ? dateHeader.getBoundingClientRect().width : null;
     setDragCellWidth(cellW);
     if (data?.type === "extend") {
       setDraggedAssignment(data.assignment);
@@ -439,7 +440,16 @@ export function BedGrid() {
         pushUndo({ type: "move", reservationId: actData.reservationId, fromBedId: originalBedId, singleDate: moveData.singleDate });
         toast("Guest moved", "success");
       },
-      onError: (error: Error) => toast(error.message, "error"),
+      onError: (error: Error) => {
+        // Check if the conflicting date is before the visible grid range
+        const dateMatch = error.message.match(/(\d{4}-\d{2}-\d{2})$/);
+        if (dateMatch && dateMatch[1] < fromStr) {
+          const conflictDate = format(parseISO(dateMatch[1]), "MMM d");
+          toast(`${error.message} (not visible — navigate back to ${conflictDate})`, "error");
+        } else {
+          toast(error.message, "error");
+        }
+      },
     });
   }
 
@@ -712,6 +722,7 @@ export function BedGrid() {
                     onOpenPanel={setPanelAssignment}
                     colorIndex={roomIndex}
                     returningGuestIds={returningGuestIds}
+                    activeReservationId={!isExtendingOverlay && draggedAssignment ? draggedAssignment.reservationId : null}
                   />
                 ))
               )}
@@ -721,14 +732,16 @@ export function BedGrid() {
 
         <DragOverlay dropAnimation={dropAnimationConfig}>
           {draggedAssignment && !isExtendingOverlay && (() => {
-            // Width = number of visible nights × single cell width
+            // Width = number of nights visible in current window × single cell width
             let overlayWidth: number | undefined;
             if (dragCellWidth) {
+              const ci = draggedAssignment.checkIn;
+              const co = draggedAssignment.checkOut;
               const visibleNights = dates.filter(d => {
                 const ds = format(d, "yyyy-MM-dd");
-                return ds >= draggedAssignment.checkIn && ds < draggedAssignment.checkOut;
+                return ds >= ci && ds < co;
               }).length;
-              overlayWidth = (visibleNights || 1) * dragCellWidth;
+              overlayWidth = Math.max(1, visibleNights) * dragCellWidth;
             }
             return <GuestCellClone assignment={draggedAssignment} width={overlayWidth} />;
           })()}
@@ -834,6 +847,7 @@ const RoomRows = React.memo(function RoomRows({
   onOpenPanel,
   colorIndex,
   returningGuestIds,
+  activeReservationId,
 }: {
   room: RoomWithBeds;
   dates: Date[];
@@ -844,6 +858,7 @@ const RoomRows = React.memo(function RoomRows({
   onOpenPanel: (assignment: Assignment) => void;
   colorIndex: number;
   returningGuestIds: Set<number>;
+  activeReservationId: number | null;
 }) {
   const [collapsed, setCollapsed] = useState(false);
   const isFemale = room.roomType === "female";
@@ -933,6 +948,7 @@ const RoomRows = React.memo(function RoomRows({
                       position={cellPosition || "single"}
                       isSelected={selectedReservation === assignment.reservationId}
                       isReturning={returningGuestIds.has(assignment.guestId)}
+                      activeReservationId={activeReservationId}
                       onSelect={() =>
                         onSelectReservation(
                           selectedReservation === assignment.reservationId

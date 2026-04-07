@@ -1,6 +1,6 @@
 "use client";
 
-import { useDraggable, useDroppable, useDndContext } from "@dnd-kit/core";
+import { useDraggable, useDroppable } from "@dnd-kit/core";
 import React, { useCallback } from "react";
 import type { Assignment, CellPosition } from "./BedGrid";
 
@@ -39,6 +39,7 @@ export const GuestCell = React.memo(function GuestCell({
   position,
   isSelected,
   isReturning,
+  activeReservationId,
   onSelect,
   onDoubleClick,
 }: {
@@ -46,6 +47,7 @@ export const GuestCell = React.memo(function GuestCell({
   position: CellPosition;
   isSelected: boolean;
   isReturning?: boolean;
+  activeReservationId: number | null;
   onSelect: () => void;
   onDoubleClick?: () => void;
 }) {
@@ -64,14 +66,12 @@ export const GuestCell = React.memo(function GuestCell({
     data: { bedId: assignment.bedId, date: assignment.date, type: "guest", reservationId: assignment.reservationId },
   });
 
-  const { active } = useDndContext();
+  // Is this reservation currently being dragged (any cell of it)?
+  // activeReservationId is passed as prop (not from useDndContext) to avoid defeating React.memo
+  const isReservationDragged = activeReservationId === assignment.reservationId;
 
   // Show red only when hovered by your OWN drag (can't swap with yourself)
-  const isSelfConflict =
-    isOver &&
-    active !== null &&
-    active.data?.current?.type !== "extend" &&
-    active.data?.current?.reservationId === assignment.reservationId;
+  const isSelfConflict = isOver && isReservationDragged;
 
   // Stable composed ref — avoids infinite unregister/re-register loop
   const composedRef = useCallback(
@@ -137,7 +137,7 @@ export const GuestCell = React.memo(function GuestCell({
       {...listeners}
       style={style}
       className={`relative group h-full flex items-center py-1 cursor-grab active:cursor-grabbing ${
-        isDragging || isExtending ? "opacity-25" : dimClass
+        isReservationDragged || isExtending ? "opacity-25" : dimClass
       }`}
       title={showName ? `${assignment.guestName} · ${assignment.checkIn} → ${assignment.checkOut} · ${assignment.source}` : undefined}
       onClick={(e) => {
@@ -151,7 +151,7 @@ export const GuestCell = React.memo(function GuestCell({
     >
       <div
         className={`w-full h-7 flex items-center ${radiusClass} border transition-shadow ${
-          isDragging || isExtending
+          isReservationDragged || isExtending
             ? "border-dashed border-blue-400 bg-transparent"
             : isSelfConflict
               ? "bg-red-950 border-red-500/60"
