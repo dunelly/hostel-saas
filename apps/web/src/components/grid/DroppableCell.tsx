@@ -39,7 +39,7 @@ export const DroppableCell = React.memo(function DroppableCell({
   let cellClass = "hover:bg-indigo-50/40";
   if (!isExtendDrag && isOver) {
     cellClass =
-      "bg-indigo-100/60 outline-2 outline-dashed outline-indigo-400 outline-offset-[-2px] rounded";
+      "bg-indigo-100 rounded";
   } else if (inExtendPreview) {
     // Ghost block — brighter on the cell under the cursor
     cellClass = isOver ? "bg-indigo-400/70 rounded" : "bg-indigo-200/80 rounded";
