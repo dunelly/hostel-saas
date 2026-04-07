@@ -101,7 +101,7 @@ export default function SchedulePage() {
   }, []);
 
   return (
-    <div className="space-y-5 max-w-full">
+    <div className="space-y-5 max-w-full min-h-[calc(100vh-5rem)]">
       {/* ─── Header ─── */}
       <div className="flex items-center justify-between">
         <div>
@@ -204,7 +204,7 @@ export default function SchedulePage() {
             {/* ─── Header: Day names + dates ─── */}
             <thead>
               <tr>
-                <th className="sticky left-0 z-20 bg-slate-900 text-white px-3 py-3 text-left text-[10px] font-bold uppercase tracking-widest min-w-[110px] rounded-tl-2xl">
+                <th className="sticky left-0 z-20 bg-slate-900 text-white px-4 py-4 text-left text-xs font-bold uppercase tracking-widest min-w-[140px] rounded-tl-2xl">
                   Shift
                 </th>
                 {days.map((day, i) => {
@@ -217,7 +217,7 @@ export default function SchedulePage() {
                   return (
                     <th
                       key={dateStr}
-                      className={`px-0 py-2.5 text-center min-w-[72px] border-l border-slate-200/50 ${
+                      className={`px-0 py-2.5 text-center min-w-[80px] border-l border-slate-200/50 ${
                         isToday
                           ? "bg-indigo-600 text-white"
                           : isSunday
@@ -248,14 +248,14 @@ export default function SchedulePage() {
                 return (
                   <tr key={shift.key}>
                     {/* Shift label */}
-                    <td className={`sticky left-0 z-10 ${shift.dimBg} border-b border-r border-slate-100 px-3 py-2`}>
-                      <div className="flex items-center gap-2">
-                        <div className={`w-6 h-6 rounded-lg bg-gradient-to-br ${shift.gradient} flex items-center justify-center shadow-sm`}>
-                          <ShiftIcon size={12} className="text-white" />
+                    <td className={`sticky left-0 z-10 ${shift.dimBg} border-b border-r border-slate-100 px-4 py-3`}>
+                      <div className="flex items-center gap-3">
+                        <div className={`w-8 h-8 rounded-lg bg-gradient-to-br ${shift.gradient} flex items-center justify-center shadow-sm`}>
+                          <ShiftIcon size={14} className="text-white" />
                         </div>
                         <div>
-                          <div className={`text-[10px] font-bold ${shift.dimText}`}>{shift.label}</div>
-                          <div className="text-[9px] text-slate-400">{shift.time}</div>
+                          <div className={`text-xs font-bold ${shift.dimText}`}>{shift.label}</div>
+                          <div className="text-[10px] text-slate-400">{shift.time}</div>
                         </div>
                       </div>
                     </td>
@@ -277,7 +277,7 @@ export default function SchedulePage() {
                           }`}
                           onClick={(e) => { e.stopPropagation(); setEditCell({ date: dateStr, shiftType: shift.key }); setDayOffDropdown(null); }}
                         >
-                          <div className="min-h-[32px] p-0.5 space-y-0.5">
+                          <div className="min-h-[44px] p-0.5 space-y-0.5">
                             {cellShifts.map(s => (
                               <div
                                 key={s.id}
@@ -326,12 +326,12 @@ export default function SchedulePage() {
 
               {/* ─── Activities Row ─── */}
               <tr>
-                <td className="sticky left-0 z-10 bg-amber-50 border-b border-r border-slate-100 px-3 py-2">
-                  <div className="flex items-center gap-2">
-                    <div className="w-6 h-6 rounded-lg bg-gradient-to-br from-amber-400 to-yellow-500 flex items-center justify-center shadow-sm">
-                      <Coffee size={12} className="text-white" />
+                <td className="sticky left-0 z-10 bg-amber-50 border-b border-r border-slate-100 px-4 py-3">
+                  <div className="flex items-center gap-3">
+                    <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-amber-400 to-yellow-500 flex items-center justify-center shadow-sm">
+                      <Coffee size={14} className="text-white" />
                     </div>
-                    <div className="text-[10px] font-bold text-amber-700">Activities</div>
+                    <div className="text-xs font-bold text-amber-700">Activities</div>
                   </div>
                 </td>
                 {days.map(day => {
@@ -354,12 +354,12 @@ export default function SchedulePage() {
 
               {/* ─── Days Off Row ─── */}
               <tr>
-                <td className="sticky left-0 z-10 bg-teal-50 border-r border-slate-100 px-3 py-2 rounded-bl-2xl">
-                  <div className="flex items-center gap-2">
-                    <div className="w-6 h-6 rounded-lg bg-gradient-to-br from-teal-400 to-cyan-500 flex items-center justify-center shadow-sm">
-                      <Palmtree size={12} className="text-white" />
+                <td className="sticky left-0 z-10 bg-teal-50 border-r border-slate-100 px-4 py-3 rounded-bl-2xl">
+                  <div className="flex items-center gap-3">
+                    <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-teal-400 to-cyan-500 flex items-center justify-center shadow-sm">
+                      <Palmtree size={14} className="text-white" />
                     </div>
-                    <div className="text-[10px] font-bold text-teal-700">Days Off</div>
+                    <div className="text-xs font-bold text-teal-700">Days Off</div>
                   </div>
                 </td>
                 {days.map((day, i) => {
@@ -376,7 +376,7 @@ export default function SchedulePage() {
                       } ${i === days.length - 1 ? "rounded-br-2xl" : ""}`}
                       onClick={(e) => { e.stopPropagation(); setDayOffDropdown(isOpen ? null : dateStr); setEditCell(null); }}
                     >
-                      <div className="min-h-[28px] p-0.5 space-y-0.5">
+                      <div className="min-h-[44px] p-0.5 space-y-0.5">
                         {offs.map(o => {
                           const member = staffList.find(s => s.id === o.staffId);
                           return (
