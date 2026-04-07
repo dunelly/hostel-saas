@@ -162,8 +162,8 @@ describe("Bed Grid", () => {
     // Move far enough to activate drag (> 8px threshold)
     await page.mouse.move(box.x + box.width / 2 + 20, box.y + box.height / 2);
 
-    // DragOverlay should appear — look for the clone with drop-shadow-xl class
-    const overlay = await page.waitForSelector(".drop-shadow-xl", { timeout: 3000 }).catch(() => null);
+    // DragOverlay should appear — look for the clone with drop-shadow-xl AND opacity-95 (GuestCellClone specific)
+    const overlay = await page.waitForSelector(".drop-shadow-xl.opacity-95", { timeout: 3000 }).catch(() => null);
     expect(overlay).not.toBeNull();
 
     // Release
