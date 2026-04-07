@@ -48,10 +48,10 @@
     injectSpinnerStyle();
 
     try {
-      const reservations = scrapeReservations();
-      console.log("[Hostel Manager] Found reservations:", reservations);
+      const { reservations, cancelledIds } = scrapeReservations();
+      console.log("[Hostel Manager] Found reservations:", reservations, "cancelled:", cancelledIds);
 
-      if (reservations.length === 0) {
+      if (reservations.length === 0 && cancelledIds.length === 0) {
         showNotification(
           "No reservations found on this page.\nMake sure you're on the Reservations list page.",
           "warning"
@@ -59,7 +59,7 @@
         return;
       }
 
-      showNotification(`Found ${reservations.length} reservation(s). Importing...`, "info");
+      showNotification(`Found ${reservations.length} booking(s), ${cancelledIds.length} cancelled. Importing...`, "info");
 
       if (!chrome?.runtime?.sendMessage) {
         showNotification("Extension disconnected — please refresh this page and try again.", "error");
@@ -69,13 +69,13 @@
       const response = await chrome.runtime.sendMessage({
         type: "RESERVATIONS_SCRAPED",
         data: reservations,
+        cancelledIds,
       });
 
       if (response.success) {
-        showNotification(
-          `Imported ${response.result.imported} new, ${response.result.duplicates} already exist`,
-          "success"
-        );
+        const parts = [`${response.result.imported} new, ${response.result.duplicates} already exist`];
+        if (response.result.cancelled > 0) parts.push(`${response.result.cancelled} cancelled`);
+        showNotification(`Imported: ${parts.join(", ")}`, "success");
       } else {
         showNotification(`Import failed: ${response.error}`, "error");
       }
@@ -121,6 +121,7 @@
   // don't contain res_id=. The booking number text link is always visible in the row.
   function scrapeReservations() {
     const reservations = [];
+    const cancelledIds = [];
     const seen = new Set();
 
     const rows = document.querySelectorAll("tr");
@@ -130,7 +131,18 @@
       try {
         const rowText = row.textContent.trim();
         if (!rowText || rowText.length < 20) continue;
-        if (/\bCancell?ed\b/i.test(rowText)) continue;
+
+        // Detect cancelled rows — extract booking number and collect for cancellation
+        if (/\bCancell?ed\b/i.test(rowText)) {
+          for (const a of row.querySelectorAll("a")) {
+            const t = a.textContent.trim();
+            if (/^\d{8,12}$/.test(t)) {
+              cancelledIds.push(`BC-${t}`);
+              break;
+            }
+          }
+          continue;
+        }
 
         // 1. Booking number: find 8-12 digit link text in the row
         let bookingNum = null;
@@ -203,8 +215,8 @@
       }
     }
 
-    console.log(`[Hostel Manager] Successfully parsed ${reservations.length} reservations`);
-    return reservations;
+    console.log(`[Hostel Manager] Successfully parsed ${reservations.length} reservations, ${cancelledIds.length} cancelled`);
+    return { reservations, cancelledIds };
   }
 
   function normalizeText(text) {
@@ -341,8 +353,8 @@
   // ─── Listen for scrape requests from service worker (Quick Sync) ──────────
   chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     if (message.type === "SCRAPE_BOOKING_PAGE") {
-      const reservations = scrapeReservations();
-      sendResponse({ reservations });
+      const result = scrapeReservations();
+      sendResponse(result);
     }
   });
 

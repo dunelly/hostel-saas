@@ -5,87 +5,255 @@ document.addEventListener("DOMContentLoaded", async () => {
   // Load settings
   const stored = await chrome.storage.local.get({
     appUrl: "http://localhost:3000",
+    appUrl2: "",
     apiKey: "hostel-dev-key-change-me",
     hotelId: "",
     lastImport: null,
   });
 
   document.getElementById("appUrl").value = stored.appUrl;
+  document.getElementById("appUrl2").value = stored.appUrl2;
   document.getElementById("apiKey").value = stored.apiKey;
   document.getElementById("hotelId").value = stored.hotelId || "";
 
-  // Show last manual import
+  // Show last import in Booking.com section
   if (stored.lastImport) {
-    document.getElementById("lastImportSection").style.display = "block";
-    document.getElementById("lastCount").textContent = stored.lastImport.imported;
-    document.getElementById("lastMeta").textContent =
-      `${stored.lastImport.source} · ${new Date(stored.lastImport.timestamp).toLocaleString()}`;
+    document.getElementById("bookingLastCount").textContent = `${stored.lastImport.imported} new`;
+    document.getElementById("bookingLastSync").textContent = timeAgo(stored.lastImport.timestamp);
   }
 
   // Detect current tab
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   currentTab = tab;
 
-  const badge = document.getElementById("otaBadge");
-  const otaText = document.getElementById("otaText");
   const importBtn = document.getElementById("importBtn");
+  const importText = document.getElementById("importBtnText");
 
   if (tab?.url?.includes("admin.booking.com")) {
     currentOta = "booking";
-    badge.className = "ota-badge booking";
-    otaText.textContent = "Booking.com detected";
+    importText.textContent = "Import from Booking.com Page";
     importBtn.disabled = false;
   } else if (tab?.url?.includes("hostelworld.com")) {
     currentOta = "hostelworld";
-    badge.className = "ota-badge hostelworld";
-    otaText.textContent = "Hostelworld detected";
+    importText.textContent = "Import from Hostelworld Page";
     importBtn.disabled = false;
   } else {
-    badge.className = "ota-badge none";
-    otaText.textContent = "Open Booking.com or Hostelworld extranet";
     importBtn.disabled = true;
   }
 
-  // Load auto-import status (non-fatal — don't let this block listener registration)
+  // Load auto-import status (non-fatal)
   refreshAutoImportUI().catch(() => {});
+  refreshGmailAutoSyncUI().catch(() => {});
 
-  // Wire up event listeners (inline onclick blocked by MV3 CSP)
+  // Wire up events
   document.getElementById("quickSyncBtn").addEventListener("click", quickSync);
+  document.getElementById("gmailSyncBtn").addEventListener("click", gmailSync);
   document.getElementById("importBtn").addEventListener("click", importFromCurrentTab);
   document.getElementById("autoToggleBooking").addEventListener("change", () => toggleAutoImport());
   document.getElementById("intervalSelectBooking").addEventListener("change", () => updateInterval());
+  document.getElementById("autoToggleGmail").addEventListener("change", () => toggleGmailAutoSync());
+  document.getElementById("intervalSelectGmail").addEventListener("change", () => updateGmailInterval());
   document.getElementById("refreshBtn").addEventListener("click", testConnection);
+  document.getElementById("connPill").addEventListener("click", testConnection);
   document.getElementById("settingsToggleBtn").addEventListener("click", toggleSettings);
   document.getElementById("saveSettingsBtn").addEventListener("click", saveSettings);
 
   testConnection();
+
+  // Resume polling if a sync is still in progress
+  resumeInProgressSyncs();
 });
 
-// ─── Auto-import ──────────────────────────────────────────────────────────────
+async function resumeInProgressSyncs() {
+  const { lastQuickImport, lastGmailSync } = await chrome.storage.local.get({
+    lastQuickImport: null,
+    lastGmailSync: null,
+  });
+
+  // Booking.com: still running
+  if (lastQuickImport && !lastQuickImport.done) {
+    const btn = document.getElementById("quickSyncBtn");
+    setSpinner(btn, "Syncing...");
+    showStatus("Booking.com sync in progress...", "info");
+    pollBookingSync(btn);
+  }
+
+  // Gmail: still running
+  if (lastGmailSync && !lastGmailSync.done) {
+    const btn = document.getElementById("gmailSyncBtn");
+    setSpinner(btn, "Syncing...");
+    showStatus("Gmail sync in progress...", "info");
+    pollGmailSync(btn);
+  }
+  // Gmail: finished while popup was closed — show the result
+  else if (lastGmailSync?.done && !lastGmailSync.error) {
+    const r = lastGmailSync.result || lastGmailSync;
+    document.getElementById("gmailLastSync").textContent = timeAgo(lastGmailSync.timestamp);
+    const parts = [];
+    if (r.imported > 0) parts.push(`${r.imported} new`);
+    if (r.cancelled > 0) parts.push(`${r.cancelled} cancelled`);
+    const msg = parts.length > 0 ? parts.join(", ") : "Up to date";
+    document.getElementById("gmailLastStatus").textContent = msg;
+    document.getElementById("gmailLastStatus").className = "sync-value good";
+  }
+}
+
+async function pollBookingSync(btn) {
+  const phases = [
+    { until: 15_000, msg: "Opening Booking.com..." },
+    { until: 40_000, msg: "Loading reservations..." },
+    { until: 70_000, msg: "Scraping & importing..." },
+    { until: 90_000, msg: "Still working..." },
+  ];
+  const start = Date.now();
+  const deadline = start + 90_000;
+  let phaseIdx = 0;
+
+  while (Date.now() < deadline) {
+    const elapsed = Date.now() - start;
+    while (phaseIdx < phases.length - 1 && elapsed > phases[phaseIdx].until) phaseIdx++;
+    showStatus(phases[phaseIdx].msg, "info");
+
+    await new Promise(r => setTimeout(r, 2000));
+    const { lastQuickImport } = await chrome.storage.local.get({ lastQuickImport: null });
+    if (!lastQuickImport?.done) continue;
+
+    if (lastQuickImport.error) {
+      showStatus(`Sync failed: ${lastQuickImport.error}`, "error");
+    } else if (lastQuickImport.message) {
+      showStatus(lastQuickImport.message, "error");
+    } else {
+      const imported = lastQuickImport.imported || 0;
+      const duplicates = lastQuickImport.duplicates || 0;
+      const cancelled = lastQuickImport.cancelled || 0;
+      const parts = [`${imported} new`, `${duplicates} existing`];
+      if (cancelled > 0) parts.push(`${cancelled} cancelled`);
+      showStatus(parts.join(" · "), imported > 0 || cancelled > 0 ? "success" : "info");
+      document.getElementById("bookingLastSync").textContent = "Just now";
+      document.getElementById("bookingLastCount").textContent = `${imported} new`;
+    }
+    resetBtn(btn, 1000);
+    return;
+  }
+  showStatus("Timed out — check Booking.com tab", "error");
+  resetBtn(btn);
+}
+
+async function pollGmailSync(btn) {
+  const deadline = Date.now() + 120_000;
+  while (Date.now() < deadline) {
+    await new Promise(r => setTimeout(r, 2000));
+    const { lastGmailSync } = await chrome.storage.local.get({ lastGmailSync: null });
+    if (!lastGmailSync?.done) continue;
+
+    if (lastGmailSync.error) {
+      showStatus(`Gmail sync failed: ${lastGmailSync.error}`, "error");
+      document.getElementById("gmailLastSync").textContent = "Just now";
+      document.getElementById("gmailLastStatus").textContent = "Failed";
+      document.getElementById("gmailLastStatus").className = "sync-value bad";
+    } else {
+      const r = lastGmailSync.result || lastGmailSync;
+      const parts = [];
+      if (r.imported > 0) parts.push(`${r.imported} new`);
+      if (r.cancelled > 0) parts.push(`${r.cancelled} cancelled`);
+      if (r.duplicates > 0) parts.push(`${r.duplicates} existing`);
+      const msg = parts.length > 0 ? parts.join(", ") : "Up to date";
+      showStatus(`Gmail: ${msg}`, "success");
+      document.getElementById("gmailLastSync").textContent = "Just now";
+      document.getElementById("gmailLastStatus").textContent = msg;
+      document.getElementById("gmailLastStatus").className = "sync-value good";
+    }
+    resetBtn(btn, 1000);
+    return;
+  }
+  showStatus("Gmail sync timed out", "error");
+  resetBtn(btn);
+}
+
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+
+function timeAgo(ts) {
+  if (!ts) return "Never";
+  const diff = Date.now() - new Date(ts).getTime();
+  const mins = Math.floor(diff / 60000);
+  if (mins < 1) return "Just now";
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  return new Date(ts).toLocaleDateString();
+}
+
+function setSpinner(btn, text) {
+  btn._origHtml = btn.innerHTML;
+  btn.innerHTML = `<div style="width:12px;height:12px;border:2px solid rgba(255,255,255,0.4);border-top-color:white;border-radius:50%;animation:spin .7s linear infinite"></div> ${text}`;
+  btn.disabled = true;
+}
+
+function resetBtn(btn, delay = 3000) {
+  setTimeout(() => {
+    btn.innerHTML = btn._origHtml;
+    btn.disabled = false;
+  }, delay);
+}
+
+// ─── Connection ──────────────────────────────────────────────────────────────
+
+async function testConnection() {
+  const pill = document.getElementById("connPill");
+  const text = document.getElementById("connText");
+  pill.className = "conn-pill load";
+  text.textContent = "...";
+
+  try {
+    const response = await chrome.runtime.sendMessage({ type: "TEST_CONNECTION" });
+    if (response.success) {
+      pill.className = "conn-pill ok";
+      const n = response.result.connectedUrls || 1;
+      text.textContent = `${response.result.rooms} rooms` + (n > 1 ? ` · ${n} servers` : "");
+    } else {
+      pill.className = "conn-pill err";
+      text.textContent = "Offline";
+    }
+  } catch (err) {
+    pill.className = "conn-pill err";
+    text.textContent = "Error";
+  }
+}
+
+function showStatus(msg, type) {
+  const bar = document.getElementById("statusBar");
+  const text = document.getElementById("statusText");
+  bar.style.display = "flex";
+  bar.className = `status-bar ${type === "success" ? "good" : type === "error" ? "bad" : "info"} fade-in`;
+  text.textContent = msg;
+}
+
+function hideStatus() {
+  document.getElementById("statusBar").style.display = "none";
+}
+
+// ─── Booking.com Auto-import ─────────────────────────────────────────────────
 
 async function refreshAutoImportUI() {
   const response = await chrome.runtime.sendMessage({ type: "GET_AUTO_IMPORT_STATUS" });
   if (!response.success) return;
 
   const { booking } = response.status;
-
   document.getElementById("autoToggleBooking").checked = booking.enabled;
   document.getElementById("intervalSelectBooking").value = String(booking.intervalMinutes || 30);
-  const nextRunB = document.getElementById("nextRunBooking");
+
+  const nextEl = document.getElementById("bookingNextRun");
   if (booking.enabled && booking.nextFireTime) {
-    nextRunB.textContent = `Next check: ${new Date(booking.nextFireTime).toLocaleTimeString()}`;
-    nextRunB.style.display = "block";
+    nextEl.textContent = `· ${new Date(booking.nextFireTime).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`;
   } else {
-    nextRunB.style.display = "none";
+    nextEl.textContent = "";
   }
 
-  // Last run label
+  // Last auto sync
   const stored = await chrome.storage.local.get({ lastAutoImportBooking: null });
   if (stored.lastAutoImportBooking) {
-    const el = document.getElementById("autoLastBooking");
-    const ts = new Date(stored.lastAutoImportBooking.timestamp).toLocaleString();
-    el.innerHTML = `Last sync: <strong>${stored.lastAutoImportBooking.imported ?? 0} imported</strong> · ${ts}`;
-    el.style.display = "block";
+    document.getElementById("bookingLastSync").textContent = timeAgo(stored.lastAutoImportBooking.timestamp);
+    document.getElementById("bookingLastCount").textContent = `${stored.lastAutoImportBooking.imported ?? 0} new`;
   }
 }
 
@@ -101,107 +269,125 @@ async function updateInterval() {
   await toggleAutoImport();
 }
 
-// ─── Quick Sync (background tab) ─────────────────────────────────────────────
+// ─── Gmail Auto-Sync ─────────────────────────────────────────────────────────
 
-async function quickSync() {
-  const btn = document.getElementById("quickSyncBtn");
-  const spinnerHtml = `
-    <div style="width:13px;height:13px;border:2px solid rgba(255,255,255,0.4);border-top-color:white;border-radius:50%;animation:spin .8s linear infinite"></div>
-    Syncing...
-  `;
-  const resetHtml = `
-    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
-      <polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/>
-      <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
-    </svg>
-    Sync Booking.com
-  `;
+async function refreshGmailAutoSyncUI() {
+  const response = await chrome.runtime.sendMessage({ type: "GET_GMAIL_AUTO_SYNC_STATUS" });
+  if (!response.success) return;
 
-  btn.innerHTML = spinnerHtml;
-  btn.disabled = true;
+  const status = response.status;
+  document.getElementById("autoToggleGmail").checked = status.enabled;
+  document.getElementById("intervalSelectGmail").value = String(status.intervalMinutes || 60);
 
-  try {
-    showStatus("Starting sync...", "checking");
+  const nextEl = document.getElementById("gmailNextRun");
+  if (status.enabled && status.nextFireTime) {
+    nextEl.textContent = `· ${new Date(status.nextFireTime).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`;
+  } else {
+    nextEl.textContent = "";
+  }
 
-    // Kick off the import — service worker responds immediately then runs in background
-    const response = await chrome.runtime.sendMessage({ type: "QUICK_IMPORT", source: "booking" });
-
-    if (!response?.success) {
-      showStatus(`Sync failed: ${response?.error || "Unknown error"}`, "disconnected");
-      return;
+  if (status.lastSync) {
+    document.getElementById("gmailLastSync").textContent = timeAgo(status.lastSync.timestamp);
+    if (status.lastSync.error) {
+      const el = document.getElementById("gmailLastStatus");
+      el.textContent = "Failed";
+      el.className = "sync-value bad";
+    } else {
+      const el = document.getElementById("gmailLastStatus");
+      el.textContent = status.lastSync.status || "OK";
+      el.className = "sync-value good";
     }
-
-    // Poll for result — service worker opens page, waits for content, scrapes, imports
-    const phases = [
-      { until: 15_000, msg: "Opening Booking.com page..." },
-      { until: 40_000, msg: "Waiting for reservations to load..." },
-      { until: 70_000, msg: "Scraping & importing..." },
-      { until: 90_000, msg: "Still working..." },
-    ];
-
-    const deadline = Date.now() + 90_000;
-    let phaseIdx = 0;
-
-    while (Date.now() < deadline) {
-      // Update status message based on elapsed time
-      const elapsed = Date.now() - (deadline - 90_000);
-      while (phaseIdx < phases.length - 1 && elapsed > phases[phaseIdx].until) phaseIdx++;
-      showStatus(phases[phaseIdx].msg, "checking");
-
-      await new Promise(r => setTimeout(r, 2000));
-      const { lastQuickImport } = await chrome.storage.local.get({ lastQuickImport: null });
-      if (!lastQuickImport?.done) continue;
-
-      if (lastQuickImport.error) {
-        showStatus(`Sync failed: ${lastQuickImport.error}`, "disconnected");
-        return;
-      }
-      if (lastQuickImport.message) {
-        showStatus(lastQuickImport.message, "disconnected");
-        return;
-      }
-
-      // Success — show results
-      const imported = lastQuickImport.imported || 0;
-      const duplicates = lastQuickImport.duplicates || 0;
-      showStatus(
-        `Imported ${imported} new · ${duplicates} already exist`,
-        imported > 0 ? "connected" : "checking"
-      );
-
-      // Update last import section
-      const { lastImport } = await chrome.storage.local.get({ lastImport: null });
-      if (lastImport) {
-        document.getElementById("lastImportSection").style.display = "block";
-        document.getElementById("lastCount").textContent = lastImport.imported;
-        document.getElementById("lastMeta").textContent =
-          `${lastImport.source} · ${new Date(lastImport.timestamp).toLocaleString()}`;
-      }
-      return;
-    }
-
-    showStatus("Timed out — check Booking.com tab is logged in", "disconnected");
-  } catch (err) {
-    showStatus(`Error: ${err.message}`, "disconnected");
-  } finally {
-    setTimeout(() => {
-      btn.innerHTML = resetHtml;
-      btn.disabled = false;
-    }, 3000);
   }
 }
 
-// ─── Manual import ────────────────────────────────────────────────────────────
+async function toggleGmailAutoSync() {
+  const enabled = document.getElementById("autoToggleGmail").checked;
+  const intervalMinutes = parseInt(document.getElementById("intervalSelectGmail").value);
+  await chrome.runtime.sendMessage({ type: "SET_GMAIL_AUTO_SYNC", enabled, intervalMinutes });
+  await refreshGmailAutoSyncUI();
+}
+
+async function updateGmailInterval() {
+  if (!document.getElementById("autoToggleGmail").checked) return;
+  await toggleGmailAutoSync();
+}
+
+// ─── Quick Sync Booking.com ──────────────────────────────────────────────────
+
+async function quickSync() {
+  const btn = document.getElementById("quickSyncBtn");
+  setSpinner(btn, "Syncing...");
+  showStatus("Starting Booking.com sync...", "info");
+
+  try {
+    const response = await chrome.runtime.sendMessage({ type: "QUICK_IMPORT", source: "booking" });
+    if (!response?.success) {
+      showStatus(`Sync failed: ${response?.error || "Unknown error"}`, "error");
+      resetBtn(btn, 2000);
+      return;
+    }
+    pollBookingSync(btn);
+  } catch (err) {
+    showStatus(`Error: ${err.message}`, "error");
+    resetBtn(btn, 2000);
+  }
+}
+
+// ─── Gmail Sync ──────────────────────────────────────────────────────────────
+
+async function gmailSync() {
+  const btn = document.getElementById("gmailSyncBtn");
+  setSpinner(btn, "Syncing...");
+
+  try {
+    showStatus("Triggering Gmail sync...", "info");
+    const response = await chrome.runtime.sendMessage({ type: "TRIGGER_GMAIL_SYNC" });
+
+    if (!response?.success) {
+      showStatus(`Gmail sync failed: ${response?.error || "Unknown error"}`, "error");
+      resetBtn(btn, 2000);
+      return;
+    }
+
+    // Poll for result (runs in service worker background)
+    const deadline = Date.now() + 120_000;
+    while (Date.now() < deadline) {
+      await new Promise(r => setTimeout(r, 2000));
+      const { lastGmailSync } = await chrome.storage.local.get({ lastGmailSync: null });
+      if (!lastGmailSync?.done) {
+        showStatus("Syncing Gmail emails...", "info");
+        continue;
+      }
+
+      if (lastGmailSync.error) {
+        showStatus(`Gmail sync failed: ${lastGmailSync.error}`, "error");
+      } else {
+        showStatus("Gmail sync complete", "success");
+        document.getElementById("gmailLastSync").textContent = "Just now";
+        document.getElementById("gmailLastStatus").textContent = "OK";
+        document.getElementById("gmailLastStatus").className = "sync-value good";
+      }
+      resetBtn(btn, 1000);
+      return;
+    }
+
+    showStatus("Gmail sync timed out", "error");
+  } catch (err) {
+    showStatus(`Error: ${err.message}`, "error");
+  } finally {
+    resetBtn(btn);
+  }
+}
+
+// ─── Manual import ───────────────────────────────────────────────────────────
 
 async function importFromCurrentTab() {
   if (!currentTab || !currentOta) return;
 
-  const importBtn = document.getElementById("importBtn");
-  importBtn.innerHTML = `
-    <div style="width:13px;height:13px;border:2px solid rgba(255,255,255,0.4);border-top-color:white;border-radius:50%;animation:spin .8s linear infinite"></div>
-    Importing...
-  `;
-  importBtn.disabled = true;
+  const btn = document.getElementById("importBtn");
+  const origHtml = btn.innerHTML;
+  btn.innerHTML = `<div style="width:12px;height:12px;border:2px solid rgba(79,70,229,0.2);border-top-color:#4f46e5;border-radius:50%;animation:spin .7s linear infinite"></div> Importing...`;
+  btn.disabled = true;
 
   try {
     const [result] = await chrome.scripting.executeScript({
@@ -214,17 +400,14 @@ async function importFromCurrentTab() {
     });
 
     if (result?.result === "no-button") {
-      showStatus("Script not ready — reload the OTA page and try again.", "warning");
+      showStatus("Script not ready — reload page and retry", "error");
     } else {
-      showStatus("Importing... check the page for results.", "success");
-      // Refresh last import after a delay
+      showStatus("Importing... check page for results", "success");
       setTimeout(async () => {
         const stored = await chrome.storage.local.get({ lastImport: null });
         if (stored.lastImport) {
-          document.getElementById("lastImportSection").style.display = "block";
-          document.getElementById("lastCount").textContent = stored.lastImport.imported;
-          document.getElementById("lastMeta").textContent =
-            `${stored.lastImport.source} · ${new Date(stored.lastImport.timestamp).toLocaleString()}`;
+          document.getElementById("bookingLastSync").textContent = timeAgo(stored.lastImport.timestamp);
+          document.getElementById("bookingLastCount").textContent = `${stored.lastImport.imported} new`;
         }
       }, 3000);
     }
@@ -232,48 +415,13 @@ async function importFromCurrentTab() {
     showStatus(`Error: ${err.message}`, "error");
   } finally {
     setTimeout(() => {
-      importBtn.innerHTML = `
-        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
-          <polyline points="8 17 12 21 16 17"/><line x1="12" y1="3" x2="12" y2="21"/>
-        </svg>
-        Import from Current Page
-      `;
-      importBtn.disabled = false;
+      btn.innerHTML = origHtml;
+      btn.disabled = false;
     }, 2000);
   }
 }
 
-// ─── Connection ───────────────────────────────────────────────────────────────
-
-async function testConnection() {
-  const statusEl = document.getElementById("connectionStatus");
-  statusEl.className = "status checking";
-  statusEl.querySelector("span").textContent = "Checking connection...";
-
-  try {
-    const response = await chrome.runtime.sendMessage({ type: "TEST_CONNECTION" });
-
-    if (response.success) {
-      statusEl.className = "status connected";
-      statusEl.querySelector("span").textContent = `Connected · ${response.result.rooms} rooms`;
-    } else {
-      statusEl.className = "status disconnected";
-      statusEl.querySelector("span").textContent = `Not connected: ${response.error}`;
-    }
-  } catch (err) {
-    statusEl.className = "status disconnected";
-    statusEl.querySelector("span").textContent = `Error: ${err.message}`;
-  }
-}
-
-function showStatus(msg, type) {
-  const el = document.getElementById("connectionStatus");
-  const cls = type === "success" ? "connected" : type === "warning" ? "checking" : "disconnected";
-  el.className = `status ${cls}`;
-  el.querySelector("span").textContent = msg;
-}
-
-// ─── Settings ─────────────────────────────────────────────────────────────────
+// ─── Settings ────────────────────────────────────────────────────────────────
 
 function toggleSettings() {
   document.getElementById("settingsPanel").classList.toggle("open");
@@ -281,9 +429,10 @@ function toggleSettings() {
 
 async function saveSettings() {
   const appUrl = document.getElementById("appUrl").value.replace(/\/$/, "");
+  const appUrl2 = document.getElementById("appUrl2").value.replace(/\/$/, "");
   const apiKey = document.getElementById("apiKey").value;
   const hotelId = document.getElementById("hotelId").value.trim();
-  await chrome.storage.local.set({ appUrl, apiKey, hotelId });
+  await chrome.storage.local.set({ appUrl, appUrl2, apiKey, hotelId });
 
   const btn = document.getElementById("saveSettingsBtn");
   btn.textContent = "Saved!";
