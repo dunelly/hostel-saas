@@ -480,7 +480,7 @@ export function GuestDetailPanel({ reservation, onClose }: Props) {
               <button
                 onClick={handleAddPayment}
                 disabled={isBusy || !payAmount}
-                className="px-4 py-2 text-xs font-bold rounded text-white disabled:opacity-40"
+                className="shrink-0 px-3 py-2 text-xs font-bold rounded text-white whitespace-nowrap disabled:opacity-40"
                 style={{ background: "#1e3a5f" }}
               >
                 Add
@@ -488,7 +488,7 @@ export function GuestDetailPanel({ reservation, onClose }: Props) {
               <button
                 onClick={() => updateMutation.mutate({ amountPaid: totalPrice, paymentStatus: "paid" })}
                 disabled={isBusy}
-                className="px-4 py-2 text-xs font-bold rounded text-white disabled:opacity-50"
+                className="shrink-0 px-3 py-2 text-xs font-bold rounded text-white whitespace-nowrap disabled:opacity-50"
                 style={{ background: "#10b981" }}
               >
                 Paid all
@@ -800,7 +800,7 @@ export function GuestDetailPanel({ reservation, onClose }: Props) {
         </div>
 
         {/* ── TOOLBAR ── */}
-        <div className="shrink-0 px-3 py-2.5 bg-slate-50 border-t border-slate-200 flex gap-1.5 flex-wrap">
+        <div className="shrink-0 px-3 py-2.5 bg-slate-50 border-t border-slate-200 flex gap-1.5 flex-wrap items-center">
           {/* Primary action */}
           {isConfirmed && !showCheckinForm && (
             <button
