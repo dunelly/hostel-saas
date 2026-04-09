@@ -4,7 +4,7 @@ import { useState, useEffect, useRef } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { format, addDays, parseISO } from "date-fns";
 import { useLang } from "@/contexts/LanguageContext";
-import { X, LogIn, LogOut, AlertCircle, CalendarPlus, Moon, Ban, UserX, Undo2, ChevronDown, Printer, Receipt, Pencil, StickyNote, Phone, Globe, CreditCard } from "lucide-react";
+import { X, AlertCircle, Moon, Undo2, Printer, Pencil, StickyNote, Phone, Globe } from "lucide-react";
 
 interface TourItem {
   id: number;
@@ -82,11 +82,11 @@ interface Props {
 }
 
 const STATUS_CFG = {
-  confirmed:   { color: "#2563eb", bg: "bg-blue-600",    label: "Arriving",    Icon: LogIn  },
-  checked_in:  { color: "#059669", bg: "bg-emerald-600", label: "Checked In",  Icon: LogIn  },
-  checked_out: { color: "#78716c", bg: "bg-stone-500",   label: "Checked Out", Icon: LogOut },
-  cancelled:   { color: "#dc2626", bg: "bg-red-600",     label: "Cancelled",   Icon: Ban    },
-  no_show:     { color: "#d97706", bg: "bg-amber-600",   label: "No Show",     Icon: UserX  },
+  confirmed:   { label: "Arriving"    },
+  checked_in:  { label: "Checked In"  },
+  checked_out: { label: "Checked Out" },
+  cancelled:   { label: "Cancelled"   },
+  no_show:     { label: "No Show"     },
 } as const;
 
 const SOURCE_LABEL: Record<string, string> = {
@@ -274,10 +274,10 @@ export function GuestDetailPanel({ reservation, onClose }: Props) {
   const isActive     = isConfirmed || isCheckedIn;
 
   const cfg = STATUS_CFG[reservation.status as keyof typeof STATUS_CFG] ?? STATUS_CFG.confirmed;
-  const StatusIcon = cfg.Icon;
+
   const extendDate = format(addDays(parseISO(reservation.checkOut), extendNights), "yyyy-MM-dd");
 
-  const initials = reservation.guestName.split(" ").map((n) => n[0]).slice(0, 2).join("").toUpperCase();
+
   const grandOwed = guestProfile?.totals.grand.owed ?? 0;
 
   function handleAddPayment() {
