@@ -349,34 +349,58 @@ export function GuestDetailPanel({ reservation, onClose }: Props) {
         <div className="flex-1 overflow-y-auto">
 
           {/* ── FORM GRID ── */}
-          <div className="grid grid-cols-[72px_1fr_72px_1fr] text-sm border-b border-slate-200">
-            <div className="px-3 py-2.5 bg-slate-50 text-slate-500 font-bold text-[11px] uppercase tracking-wide border-b border-r border-slate-200">Bed</div>
-            <div className="px-3 py-2.5 text-slate-900 font-medium border-b border-r border-slate-200">{reservation.bedId || "—"}</div>
-            <div className="px-3 py-2.5 bg-slate-50 text-slate-500 font-bold text-[11px] uppercase tracking-wide border-b border-r border-slate-200">Source</div>
-            <div className="px-3 py-2.5 text-slate-900 font-medium border-b border-slate-200">{SOURCE_LABEL[reservation.source] || reservation.source}</div>
+          <div className="grid grid-cols-[68px_1fr_68px_1fr] text-[13px] border-b border-slate-200">
+            <div className="px-2.5 py-2 bg-slate-50 text-slate-500 font-bold text-[10px] uppercase tracking-wide border-b border-r border-slate-200">Bed</div>
+            <div className="px-2.5 py-2 text-slate-900 font-medium border-b border-r border-slate-200">{reservation.bedId || "—"}</div>
+            <div className="px-2.5 py-2 bg-slate-50 text-slate-500 font-bold text-[10px] uppercase tracking-wide border-b border-r border-slate-200">Source</div>
+            <div className="px-2.5 py-2 text-slate-900 font-medium border-b border-slate-200">{SOURCE_LABEL[reservation.source] || reservation.source}</div>
 
-            <div className="px-3 py-2.5 bg-slate-50 text-slate-500 font-bold text-[11px] uppercase tracking-wide border-b border-r border-slate-200">Check-in</div>
-            <div className="px-3 py-2.5 text-slate-900 font-medium border-b border-r border-slate-200">{format(new Date(reservation.checkIn + "T12:00:00"), "d MMM")}</div>
-            <div className="px-3 py-2.5 bg-slate-50 text-slate-500 font-bold text-[11px] uppercase tracking-wide border-b border-r border-slate-200">Check-out</div>
-            <div className="px-3 py-2.5 text-slate-900 font-medium border-b border-slate-200">{format(new Date(reservation.checkOut + "T12:00:00"), "d MMM")}</div>
+            <div className="px-2.5 py-2 bg-slate-50 text-slate-500 font-bold text-[10px] uppercase tracking-wide border-b border-r border-slate-200">Check-in</div>
+            <div className="px-2.5 py-2 text-slate-900 font-medium border-b border-r border-slate-200">{format(new Date(reservation.checkIn + "T12:00:00"), "d MMM")}</div>
+            <div className="px-2.5 py-2 bg-slate-50 text-slate-500 font-bold text-[10px] uppercase tracking-wide border-b border-r border-slate-200">Check-out</div>
+            <div className="px-2.5 py-2 text-slate-900 font-medium border-b border-slate-200">{format(new Date(reservation.checkOut + "T12:00:00"), "d MMM")}</div>
 
-            <div className="px-3 py-2.5 bg-slate-50 text-slate-500 font-bold text-[11px] uppercase tracking-wide border-b border-r border-slate-200">Nights</div>
-            <div className="px-3 py-2.5 text-slate-900 font-medium border-b border-r border-slate-200">{nights}</div>
-            <div className="px-3 py-2.5 bg-slate-50 text-slate-500 font-bold text-[11px] uppercase tracking-wide border-b border-r border-slate-200">Guests</div>
-            <div className="px-3 py-2.5 text-slate-900 font-medium border-b border-slate-200">{reservation.numGuests}</div>
-
-            <div className="px-3 py-2.5 bg-slate-50 text-slate-500 font-bold text-[11px] uppercase tracking-wide border-b border-r border-slate-200">Total</div>
-            <div className="px-3 py-2.5 text-slate-900 font-semibold border-b border-r border-slate-200">{totalPrice > 0 ? `${cur} ${totalPrice.toLocaleString()}` : "—"}</div>
-            <div className="px-3 py-2.5 bg-slate-50 text-slate-500 font-bold text-[11px] uppercase tracking-wide border-b border-r border-slate-200">{debt > 0 ? "Balance" : "Paid"}</div>
-            <div className={`px-3 py-2.5 font-bold text-base border-b border-slate-200 ${debt > 0 ? "text-red-600" : "text-emerald-600"}`}>
-              {totalPrice > 0
-                ? debt > 0
-                  ? `${cur} ${debt.toLocaleString()}`
-                  : `${cur} ${amountPaid.toLocaleString()} ✓`
-                : "—"
-              }
-            </div>
+            <div className="px-2.5 py-2 bg-slate-50 text-slate-500 font-bold text-[10px] uppercase tracking-wide border-b border-r border-slate-200">Nights</div>
+            <div className="px-2.5 py-2 text-slate-900 font-medium border-b border-r border-slate-200">{nights}</div>
+            <div className="px-2.5 py-2 bg-slate-50 text-slate-500 font-bold text-[10px] uppercase tracking-wide border-b border-r border-slate-200">Guests</div>
+            <div className="px-2.5 py-2 text-slate-900 font-medium border-b border-slate-200">{reservation.numGuests}</div>
           </div>
+
+          {/* ── RECEIPT: Payment Summary ── */}
+          {totalPrice > 0 && (
+            <div className="px-3.5 py-2.5 border-b border-slate-200">
+              <div className="flex justify-between items-baseline py-0.5 text-[13px]">
+                <span className="text-slate-500">Total</span>
+                <span className="text-slate-900 font-semibold tabular-nums">{cur} {totalPrice.toLocaleString()}</span>
+              </div>
+              {amountPaid > 0 && (
+                <div className="flex justify-between items-baseline py-0.5 text-[13px]">
+                  <span className="text-slate-500">Paid</span>
+                  <span className="text-emerald-600 font-semibold tabular-nums">− {cur} {amountPaid.toLocaleString()}</span>
+                </div>
+              )}
+              <div className="border-t border-slate-200 mt-1 pt-1">
+                <div className="flex justify-between items-center">
+                  <span className="text-[13px] font-bold text-slate-900">{debt > 0 ? "Owed" : "Paid"}</span>
+                  <div className="flex items-center gap-2">
+                    <span className={`text-base font-extrabold tabular-nums ${debt > 0 ? "text-red-600" : "text-emerald-600"}`}>
+                      {debt > 0 ? `${cur} ${debt.toLocaleString()}` : `${cur} ${amountPaid.toLocaleString()} ✓`}
+                    </span>
+                    {debt > 0 && isActive && (
+                      <button
+                        onClick={() => updateMutation.mutate({ amountPaid: totalPrice, paymentStatus: "paid" })}
+                        disabled={isBusy}
+                        className="px-2.5 py-1 text-[11px] font-bold rounded text-white disabled:opacity-50"
+                        style={{ background: "#10b981" }}
+                      >
+                        Paid all
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* ── GUEST INFO (collapsed display) ── */}
           {guestProfile && !showGuestEdit && (
@@ -464,9 +488,9 @@ export function GuestDetailPanel({ reservation, onClose }: Props) {
             </div>
           )}
 
-          {/* ── PAYMENT STRIP ── */}
+          {/* ── PAYMENT INPUT ── */}
           {debt > 0 && isActive && (
-            <div className="px-3 py-2.5 flex gap-1.5 items-center border-b border-slate-200">
+            <div className="px-3.5 py-2 flex gap-1.5 items-center border-b border-slate-200">
               <input
                 ref={payInputRef}
                 type="number"
@@ -475,23 +499,15 @@ export function GuestDetailPanel({ reservation, onClose }: Props) {
                 onChange={(e) => setPayAmount(e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && handleAddPayment()}
                 placeholder="Amount"
-                className="flex-1 min-w-0 border border-slate-300 rounded px-2.5 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500/30"
+                className="flex-1 min-w-0 border border-slate-300 rounded px-2.5 py-1.5 text-[13px] focus:outline-none focus:ring-1 focus:ring-blue-500/30"
               />
               <button
                 onClick={handleAddPayment}
                 disabled={isBusy || !payAmount}
-                className="shrink-0 px-2.5 py-1.5 text-[11px] font-bold rounded text-white whitespace-nowrap disabled:opacity-40"
+                className="shrink-0 px-3 py-1.5 text-[11px] font-bold rounded text-white whitespace-nowrap disabled:opacity-40"
                 style={{ background: "#1e3a5f" }}
               >
                 Add
-              </button>
-              <button
-                onClick={() => updateMutation.mutate({ amountPaid: totalPrice, paymentStatus: "paid" })}
-                disabled={isBusy}
-                className="shrink-0 px-2.5 py-1.5 text-[11px] font-bold rounded text-white whitespace-nowrap disabled:opacity-50"
-                style={{ background: "#10b981" }}
-              >
-                Paid all
               </button>
             </div>
           )}
@@ -885,27 +901,27 @@ export function GuestDetailPanel({ reservation, onClose }: Props) {
             </button>
           )}
 
-          <div className="flex-1" />
-
-          {/* Destructive actions */}
-          {isConfirmed && (
-            <button
-              onClick={() => updateMutation.mutate({ status: "no_show" })}
-              disabled={isBusy}
-              className="px-3 py-1.5 text-[11px] font-bold rounded bg-white border border-slate-300 text-slate-500 hover:bg-slate-100 disabled:opacity-50"
-            >
-              No Show
-            </button>
-          )}
-          {isActive && (
-            <button
-              onClick={() => updateMutation.mutate({ status: "cancelled" })}
-              disabled={isBusy}
-              className="px-3 py-1.5 text-[11px] font-bold rounded bg-white border border-red-300 text-red-500 hover:bg-red-50 disabled:opacity-50"
-            >
-              Cancel
-            </button>
-          )}
+          {/* Destructive actions — text links, pushed right */}
+          <div className="flex items-center gap-2 ml-auto">
+            {isConfirmed && (
+              <button
+                onClick={() => updateMutation.mutate({ status: "no_show" })}
+                disabled={isBusy}
+                className="text-[11px] font-semibold text-amber-700 hover:text-amber-900 disabled:opacity-50 transition-colors"
+              >
+                No Show
+              </button>
+            )}
+            {isActive && (
+              <button
+                onClick={() => updateMutation.mutate({ status: "cancelled" })}
+                disabled={isBusy}
+                className="text-[11px] font-semibold text-red-500 hover:text-red-700 disabled:opacity-50 transition-colors"
+              >
+                Cancel
+              </button>
+            )}
+          </div>
         </div>
       </div>
 
