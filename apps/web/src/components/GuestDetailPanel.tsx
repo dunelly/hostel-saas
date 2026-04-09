@@ -313,7 +313,7 @@ export function GuestDetailPanel({ reservation, onClose }: Props) {
       {/* Panel */}
       <div
         className={`fixed left-0 top-0 bottom-0 z-50 flex flex-col bg-white shadow-2xl overflow-hidden
-          transition-transform duration-200 ease-out w-[420px]
+          transition-transform duration-200 ease-out w-[min(380px,100vw)]
           ${isClosing || !mounted ? "-translate-x-full" : "translate-x-0"}`}
       >
         {/* Top loading bar */}
@@ -349,7 +349,7 @@ export function GuestDetailPanel({ reservation, onClose }: Props) {
         <div className="flex-1 overflow-y-auto">
 
           {/* ── FORM GRID ── */}
-          <div className="grid grid-cols-[90px_1fr_90px_1fr] text-sm border-b border-slate-200">
+          <div className="grid grid-cols-[72px_1fr_72px_1fr] text-sm border-b border-slate-200">
             <div className="px-3 py-2.5 bg-slate-50 text-slate-500 font-bold text-[11px] uppercase tracking-wide border-b border-r border-slate-200">Bed</div>
             <div className="px-3 py-2.5 text-slate-900 font-medium border-b border-r border-slate-200">{reservation.bedId || "—"}</div>
             <div className="px-3 py-2.5 bg-slate-50 text-slate-500 font-bold text-[11px] uppercase tracking-wide border-b border-r border-slate-200">Source</div>
@@ -466,7 +466,7 @@ export function GuestDetailPanel({ reservation, onClose }: Props) {
 
           {/* ── PAYMENT STRIP ── */}
           {debt > 0 && isActive && (
-            <div className="px-4 py-3 flex gap-2 items-center border-b border-slate-200">
+            <div className="px-3 py-2.5 flex gap-1.5 items-center border-b border-slate-200">
               <input
                 ref={payInputRef}
                 type="number"
@@ -474,13 +474,13 @@ export function GuestDetailPanel({ reservation, onClose }: Props) {
                 value={payAmount}
                 onChange={(e) => setPayAmount(e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && handleAddPayment()}
-                placeholder="Payment amount"
-                className="flex-1 border border-slate-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500/30"
+                placeholder="Amount"
+                className="flex-1 min-w-0 border border-slate-300 rounded px-2.5 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500/30"
               />
               <button
                 onClick={handleAddPayment}
                 disabled={isBusy || !payAmount}
-                className="shrink-0 px-3 py-2 text-xs font-bold rounded text-white whitespace-nowrap disabled:opacity-40"
+                className="shrink-0 px-2.5 py-1.5 text-[11px] font-bold rounded text-white whitespace-nowrap disabled:opacity-40"
                 style={{ background: "#1e3a5f" }}
               >
                 Add
@@ -488,7 +488,7 @@ export function GuestDetailPanel({ reservation, onClose }: Props) {
               <button
                 onClick={() => updateMutation.mutate({ amountPaid: totalPrice, paymentStatus: "paid" })}
                 disabled={isBusy}
-                className="shrink-0 px-3 py-2 text-xs font-bold rounded text-white whitespace-nowrap disabled:opacity-50"
+                className="shrink-0 px-2.5 py-1.5 text-[11px] font-bold rounded text-white whitespace-nowrap disabled:opacity-50"
                 style={{ background: "#10b981" }}
               >
                 Paid all
