@@ -238,7 +238,7 @@ export function BedGrid() {
         onDragStart={handleDragStart}
         onDragEnd={handleDragEnd}
       >
-        <div className="overflow-auto max-h-[calc(100vh-7rem)] bg-white rounded-xl border border-slate-200 shadow-sm">
+        <div className="overflow-auto max-h-[calc(100vh-10rem)] bg-white rounded-xl border border-slate-200 shadow-sm">
           <table className="w-full border-collapse">
             <thead className="sticky top-0 z-30">
               <tr>
