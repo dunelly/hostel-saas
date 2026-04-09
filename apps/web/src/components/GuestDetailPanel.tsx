@@ -800,13 +800,13 @@ export function GuestDetailPanel({ reservation, onClose }: Props) {
         </div>
 
         {/* ── TOOLBAR ── */}
-        <div className="shrink-0 px-3 py-2.5 bg-slate-50 border-t border-slate-200 flex gap-1.5 flex-wrap items-center">
+        <div className="shrink-0 px-2.5 py-2 bg-slate-50 border-t border-slate-200 flex gap-1 items-center">
           {/* Primary action */}
           {isConfirmed && !showCheckinForm && (
             <button
               onClick={() => setShowCheckinForm(true)}
               disabled={isBusy}
-              className="px-4 py-2 text-xs font-bold rounded text-white disabled:opacity-50"
+              className="px-3 py-1.5 text-[11px] font-bold rounded text-white disabled:opacity-50"
               style={{ background: "#1e3a5f" }}
             >
               Check In
@@ -823,7 +823,7 @@ export function GuestDetailPanel({ reservation, onClose }: Props) {
                 }
               }}
               disabled={isBusy}
-              className="px-4 py-2 text-xs font-bold rounded text-white disabled:opacity-50"
+              className="px-3 py-1.5 text-[11px] font-bold rounded text-white disabled:opacity-50"
               style={{ background: "#1e3a5f" }}
             >
               Check Out
@@ -833,9 +833,9 @@ export function GuestDetailPanel({ reservation, onClose }: Props) {
             <button
               onClick={() => updateMutation.mutate({ status: "checked_in" })}
               disabled={isBusy}
-              className="px-4 py-2 text-xs font-bold rounded bg-white border border-slate-300 text-slate-600 hover:bg-slate-100 disabled:opacity-50"
+              className="px-3 py-1.5 text-[11px] font-bold rounded bg-white border border-slate-300 text-slate-600 hover:bg-slate-100 disabled:opacity-50"
             >
-              Undo Checkout
+              Undo
             </button>
           )}
 
@@ -843,7 +843,7 @@ export function GuestDetailPanel({ reservation, onClose }: Props) {
           {!isCancelled && !isNoShow && (
             <button
               onClick={() => { setShowExtend(!showExtend); setExtendError(""); }}
-              className={`px-4 py-2 text-xs font-bold rounded border transition-colors ${
+              className={`px-3 py-1.5 text-[11px] font-bold rounded border transition-colors ${
                 showExtend ? "bg-blue-600 border-blue-600 text-white" : "bg-white border-slate-300 text-slate-600 hover:bg-slate-100"
               }`}
             >
@@ -861,7 +861,7 @@ export function GuestDetailPanel({ reservation, onClose }: Props) {
                 }
                 setShowGuestEdit(!showGuestEdit);
               }}
-              className={`px-4 py-2 text-xs font-bold rounded border transition-colors ${
+              className={`px-3 py-1.5 text-[11px] font-bold rounded border transition-colors ${
                 showGuestEdit ? "bg-slate-800 border-slate-800 text-white" : "bg-white border-slate-300 text-slate-600 hover:bg-slate-100"
               }`}
             >
@@ -870,26 +870,18 @@ export function GuestDetailPanel({ reservation, onClose }: Props) {
           )}
           <button
             onClick={() => setShowBill(!showBill)}
-            className={`px-4 py-2 text-xs font-bold rounded border transition-colors ${
+            className={`px-3 py-1.5 text-[11px] font-bold rounded border transition-colors ${
               showBill ? "bg-slate-800 border-slate-800 text-white" : "bg-white border-slate-300 text-slate-600 hover:bg-slate-100"
             }`}
           >
             Bill
           </button>
-          {totalPrice === 0 && !showPriceEdit && (
+          {!showPriceEdit && (
             <button
               onClick={() => setShowPriceEdit(true)}
-              className="px-4 py-2 text-xs font-bold rounded bg-white border border-slate-300 text-slate-600 hover:bg-slate-100"
+              className="px-3 py-1.5 text-[11px] font-bold rounded bg-white border border-slate-300 text-slate-600 hover:bg-slate-100"
             >
-              Set Price
-            </button>
-          )}
-          {totalPrice > 0 && !showPriceEdit && (
-            <button
-              onClick={() => setShowPriceEdit(true)}
-              className="px-4 py-2 text-xs font-bold rounded bg-white border border-slate-300 text-slate-600 hover:bg-slate-100"
-            >
-              Edit Price
+              Price
             </button>
           )}
 
@@ -900,7 +892,7 @@ export function GuestDetailPanel({ reservation, onClose }: Props) {
             <button
               onClick={() => updateMutation.mutate({ status: "no_show" })}
               disabled={isBusy}
-              className="px-4 py-2 text-xs font-bold rounded bg-white border border-slate-300 text-slate-600 hover:bg-slate-100 disabled:opacity-50"
+              className="px-3 py-1.5 text-[11px] font-bold rounded bg-white border border-slate-300 text-slate-500 hover:bg-slate-100 disabled:opacity-50"
             >
               No Show
             </button>
@@ -909,7 +901,7 @@ export function GuestDetailPanel({ reservation, onClose }: Props) {
             <button
               onClick={() => updateMutation.mutate({ status: "cancelled" })}
               disabled={isBusy}
-              className="px-4 py-2 text-xs font-bold rounded bg-white border border-red-300 text-red-600 hover:bg-red-50 disabled:opacity-50"
+              className="px-3 py-1.5 text-[11px] font-bold rounded bg-white border border-red-300 text-red-500 hover:bg-red-50 disabled:opacity-50"
             >
               Cancel
             </button>
