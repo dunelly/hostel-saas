@@ -5,12 +5,6 @@ import { eq, inArray, and } from "drizzle-orm";
 
 export async function POST(request: NextRequest) {
   try {
-    const expectedKey = process.env.IMPORT_API_KEY;
-    const providedKey = request.headers.get("x-api-key");
-    if (!expectedKey || providedKey !== expectedKey) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
-
     const body = await request.json();
     const { externalIds } = body;
 

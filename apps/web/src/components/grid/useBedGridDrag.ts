@@ -1,7 +1,7 @@
 import { useState, useCallback, useEffect } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { format, addDays, parseISO } from "date-fns";
-import type { DragStartEvent, DragEndEvent } from "@dnd-kit/core";
+import type { DragStartEvent, DragEndEvent, DragOverEvent } from "@dnd-kit/core";
 import { useToast } from "@/components/Toast";
 import type { Assignment } from "./BedGrid";
 
@@ -24,6 +24,7 @@ export function useBedGridDrag({ assignments, fromStr, toStr }: UseBedGridDragOp
   const [isExtendingOverlay, setIsExtendingOverlay] = useState(false);
   const [dragMode, setDragMode] = useState<"stay" | "night">("stay");
   const [dragBedDates, setDragBedDates] = useState<string[]>([]);
+  const [extendHoverDate, setExtendHoverDate] = useState<string | null>(null);
   const [undoHistory, setUndoHistory] = useState<UndoEntry[]>([]);
 
   const pushUndo = useCallback((entry: UndoEntry) => {

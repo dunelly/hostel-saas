@@ -25,6 +25,21 @@ interface AutoSyncSettings {
   syncHour: number;
 }
 
+function getBookingDateWindow() {
+  const now = Date.now();
+  return {
+    past: new Date(now - 1 * 86400000).toISOString().split("T")[0],
+    future: new Date(now + 90 * 86400000).toISOString().split("T")[0],
+  };
+}
+
+function formatDateTime(value?: string) {
+  if (!value) return null;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  return date.toLocaleString();
+}
+
 function GmailSection() {
   const searchParams = useSearchParams();
   const queryClient = useQueryClient();
@@ -57,6 +72,8 @@ function GmailSection() {
   }, [syncStatus?.status]);
 
   const isSyncing = syncStatus?.status === "running";
+  const connectedAt = formatDateTime(status?.updatedAt);
+  const lastSyncedAt = formatDateTime(syncStatus?.updatedAt);
 
   const syncMutation = useMutation({
     mutationFn: (deep: boolean = false) => fetch("/api/gmail/sync", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ deep }) }).then((r) => r.json()),
@@ -77,8 +94,7 @@ function GmailSection() {
   const { data: autoSyncSettings } = useQuery<AutoSyncSettings>({
     queryKey: ["gmail-auto-sync"],
     queryFn: async () => {
-      const syncStatus = await fetch("/api/gmail/sync").then((r) => r.json());
-      // Read from settings via PATCH with no changes — or we can just default
+      // Read from settings via PATCH with no changes, matching the current API.
       const res = await fetch("/api/gmail/sync", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
@@ -135,9 +151,9 @@ function GmailSection() {
               <>
                 <CheckCircle size={15} className="text-emerald-500" />
                 <span className="text-sm font-medium text-slate-700">Connected</span>
-                {status.updatedAt && (
+                {connectedAt && (
                   <span className="text-xs text-slate-400">
-                    · since {new Date(status.updatedAt).toLocaleDateString()}
+                    · since {connectedAt}
                   </span>
                 )}
               </>
@@ -194,8 +210,8 @@ function GmailSection() {
                     autoSyncSettings?.enabled !== false ? "translate-x-4" : ""
                   }`} />
                 </button>
-                <span className="text-xs font-medium text-slate-700">Daily auto-sync</span>
-                <span className="text-[11px] text-slate-400">(6:00 AM UTC)</span>
+                <span className="text-xs font-medium text-slate-700">Hourly Gmail sync</span>
+                <span className="text-[11px] text-slate-400">(Hostelworld emails)</span>
               </div>
             </div>
 
@@ -203,7 +219,7 @@ function GmailSection() {
               <div className="flex items-center gap-2 text-xs text-slate-500">
                 <Clock size={12} />
                 {autoSyncSettings?.enabled !== false
-                  ? "Syncs daily at 06:00 UTC"
+                  ? "Checks Gmail hourly for Hostelworld guests"
                   : "Auto-sync disabled"}
               </div>
               <div className="flex items-center gap-2">
@@ -229,9 +245,9 @@ function GmailSection() {
             {/* Sync result */}
             {lastSync && (
               <div className="bg-slate-50 rounded-lg p-3 text-xs space-y-1.5">
-                {syncStatus?.updatedAt && (
+                {lastSyncedAt && (
                   <div className="text-slate-400 text-[11px]">
-                    Last synced: {new Date(syncStatus.updatedAt).toLocaleString()}
+                    Last synced: {lastSyncedAt}
                   </div>
                 )}
                 {lastSync.error ? (
@@ -285,10 +301,11 @@ function GmailSection() {
 
 function BookingComSection() {
   const [hotelId, setHotelId] = useState("");
+  const [dateWindow, setDateWindow] = useState<{ past: string; future: string } | null>(null);
 
   useEffect(() => {
-    const saved = localStorage.getItem("booking_hotel_id");
-    if (saved) setHotelId(saved);
+    setHotelId(localStorage.getItem("booking_hotel_id") || "");
+    setDateWindow(getBookingDateWindow());
   }, []);
 
   function saveHotelId(id: string) {
@@ -296,10 +313,8 @@ function BookingComSection() {
     localStorage.setItem("booking_hotel_id", id);
   }
 
-  const past = new Date(Date.now() - 1 * 86400000).toISOString().split("T")[0];
-  const future = new Date(Date.now() + 90 * 86400000).toISOString().split("T")[0];
-  const bookingUrl = hotelId
-    ? `https://admin.booking.com/hotel/hoteladmin/extranet_ng/manage/search_reservations.html?hotel_id=${hotelId}&date_from=${past}&date_to=${future}&date_type=arrival&rows=100`
+  const bookingUrl = hotelId && dateWindow
+    ? `https://admin.booking.com/hotel/hoteladmin/extranet_ng/manage/search_reservations.html?hotel_id=${hotelId}&date_from=${dateWindow.past}&date_to=${dateWindow.future}&date_type=arrival&rows=100`
     : null;
 
   return (

@@ -148,13 +148,6 @@ export async function runGmailSync(deep = false): Promise<SyncResult> {
     return { imported: 0, duplicates: 0, cancelled: 0, errors: [], emailsChecked: 0, message: "No reservation emails found." };
   }
 
-  // Pre-load existing external IDs so we can skip emails we already imported
-  const existingRows = await db
-    .select({ externalId: reservations.externalId })
-    .from(reservations)
-    .all();
-  const existingIds = new Set(existingRows.map((r) => r.externalId).filter(Boolean));
-
   const parsed: ReservationImport[] = [];
   const cancellationIds: string[] = [];
   const parseErrors: string[] = [];
@@ -181,7 +174,6 @@ export async function runGmailSync(deep = false): Promise<SyncResult> {
             return;
           }
           if (reservation && reservation.externalId && reservation.guestName && reservation.checkIn && reservation.checkOut) {
-            if (existingIds.has(reservation.externalId)) return;
             parsed.push(reservation as ReservationImport);
             return;
           }
@@ -200,7 +192,6 @@ export async function runGmailSync(deep = false): Promise<SyncResult> {
       const reservation = parseHostelworldEmail(subject, body);
 
       if (reservation && reservation.externalId && reservation.guestName && reservation.checkIn && reservation.checkOut) {
-        if (existingIds.has(reservation.externalId)) return;
         parsed.push(reservation as ReservationImport);
       }
     } catch (err) {
@@ -237,20 +228,21 @@ export async function runGmailSync(deep = false): Promise<SyncResult> {
     };
   }
 
-  let importResult = { newIds: [] as number[], duplicateCount: 0, errors: [] as string[] };
+  let importResult = { newIds: [] as number[], assignIds: [] as number[], duplicateCount: 0, errors: [] as string[] };
   if (parsed.length > 0) {
     importResult = await importReservations(parsed);
-    if (importResult.newIds.length > 0) {
-      await autoAssign(importResult.newIds);
+    if (importResult.assignIds.length > 0) {
+      await autoAssign(importResult.assignIds);
     }
 
     // Forward new reservations to mirror URL (e.g. localhost syncs → push to Vercel)
     const mirrorUrl = process.env.MIRROR_SYNC_URL;
-    if (mirrorUrl && parsed.length > 0) {
+    const importApiKey = process.env.IMPORT_API_KEY;
+    if (mirrorUrl && importApiKey && parsed.length > 0) {
       try {
         await fetch(`${mirrorUrl}/api/import`, {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: { "Content-Type": "application/json", "x-api-key": importApiKey },
           body: JSON.stringify({ reservations: parsed }),
         });
       } catch (e) {
@@ -259,11 +251,11 @@ export async function runGmailSync(deep = false): Promise<SyncResult> {
     }
 
     // Forward cancellations to mirror URL
-    if (mirrorUrl && cancellationIds.length > 0) {
+    if (mirrorUrl && importApiKey && cancellationIds.length > 0) {
       try {
         await fetch(`${mirrorUrl}/api/reservations/cancel`, {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: { "Content-Type": "application/json", "x-api-key": importApiKey },
           body: JSON.stringify({ externalIds: [...new Set(cancellationIds)] }),
         });
       } catch (e) {}
@@ -279,7 +271,9 @@ export async function runGmailSync(deep = false): Promise<SyncResult> {
       set: { value: new Date().toISOString(), updatedAt: new Date().toISOString() },
     });
 
+  const repairedCount = Math.max(0, importResult.assignIds.length - importResult.newIds.length);
   const parts = [`Synced ${importResult.newIds.length} new`, `${importResult.duplicateCount} already existed`];
+  if (repairedCount > 0) parts.push(`${repairedCount} re-assigned`);
   if (cancelledCount > 0) parts.push(`${cancelledCount} cancelled`);
   parts.push(`(${messages.length} emails scanned${useGemini ? ", AI-powered" : ""})`);
 

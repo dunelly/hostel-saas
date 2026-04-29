@@ -127,7 +127,7 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
 // ─── Build the Booking.com reservations list URL ─────────────────────────────
 function buildBookingReservationsUrl(hotelId) {
   const past = new Date(Date.now() - 2 * 864e5).toISOString().split("T")[0];
-  const future = new Date(Date.now() + 14 * 864e5).toISOString().split("T")[0];
+  const future = new Date(Date.now() + 90 * 864e5).toISOString().split("T")[0];
   return `https://admin.booking.com/hotel/hoteladmin/extranet_ng/manage/search_reservations.html?hotel_id=${hotelId}&date_from=${past}&date_to=${future}&date_type=arrival&rows=100`;
 }
 
@@ -487,7 +487,8 @@ async function updateLastAutoImport(info) {
 
 async function triggerGmailSync() {
   const urls = await getUrls();
-  const headers = { "Content-Type": "application/json" };
+  const { apiKey } = await getSettings();
+  const headers = { "Content-Type": "application/json", "x-api-key": apiKey };
   const body = JSON.stringify({});
 
   let result = null;

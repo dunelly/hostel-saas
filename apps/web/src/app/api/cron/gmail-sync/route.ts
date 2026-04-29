@@ -4,8 +4,8 @@ import { db } from "@/lib/db";
 import { settings } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
 
-// Called by Vercel Cron every hour — see vercel.json
-// Checks if auto-sync is enabled and if current hour matches configured sync hour
+// Called by Vercel Cron every hour — see vercel.json.
+// The settings toggle only enables or disables this hourly job.
 export async function GET(request: NextRequest) {
   const authHeader = request.headers.get("authorization");
   if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {

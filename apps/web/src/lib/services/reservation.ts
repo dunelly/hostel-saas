@@ -1,5 +1,5 @@
 import { db } from "@/lib/db";
-import { guests, reservations } from "@/lib/db/schema";
+import { guests, reservations, bedAssignments } from "@/lib/db/schema";
 import { eq, and, sql } from "drizzle-orm";
 import type { ReservationImport } from "@/types";
 
@@ -36,8 +36,9 @@ async function getVndRate(currency: string): Promise<number | null> {
  */
 export async function importReservations(
   imports: ReservationImport[]
-): Promise<{ newIds: number[]; duplicateCount: number; errors: string[] }> {
+): Promise<{ newIds: number[]; assignIds: number[]; duplicateCount: number; errors: string[] }> {
   const newIds: number[] = [];
+  const assignIds: number[] = [];
   let duplicateCount = 0;
   const errors: string[] = [];
 
@@ -65,6 +66,14 @@ export async function importReservations(
                 .set({ totalPrice: Math.round(stored.totalPrice * rate), currency: "VND" })
                 .where(eq(reservations.id, stored.id));
             }
+          }
+          const assignment = await db
+            .select({ id: bedAssignments.id })
+            .from(bedAssignments)
+            .where(eq(bedAssignments.reservationId, stored.id))
+            .limit(1);
+          if (assignment.length === 0) {
+            assignIds.push(stored.id);
           }
           duplicateCount++;
           continue;
@@ -119,11 +128,12 @@ export async function importReservations(
         .returning({ id: reservations.id });
 
       newIds.push(result[0].id);
+      assignIds.push(result[0].id);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unknown error";
       errors.push(`Failed to import ${imp.guestName}: ${message}`);
     }
   }
 
-  return { newIds, duplicateCount, errors };
+  return { newIds, assignIds, duplicateCount, errors };
 }

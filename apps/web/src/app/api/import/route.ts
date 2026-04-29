@@ -7,12 +7,6 @@ import { importLog } from "@/lib/db/schema";
 
 export async function POST(request: NextRequest) {
   try {
-    const expectedKey = process.env.IMPORT_API_KEY;
-    const providedKey = request.headers.get("x-api-key");
-    if (!expectedKey || providedKey !== expectedKey) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
-
     const body = await request.json();
     const parsed = importRequestSchema.safeParse(body);
 
@@ -24,14 +18,14 @@ export async function POST(request: NextRequest) {
     }
 
     // Import reservations
-    const { newIds, duplicateCount, errors } = await importReservations(
+    const { newIds, assignIds, duplicateCount, errors } = await importReservations(
       parsed.data.reservations
     );
 
-    // Auto-assign newly imported reservations
+    // Auto-assign new reservations and existing duplicates that still have no bed rows.
     let assignmentResult = { assigned: 0, unassigned: 0, errors: [] as string[] };
-    if (newIds.length > 0) {
-      assignmentResult = await autoAssign(newIds);
+    if (assignIds.length > 0) {
+      assignmentResult = await autoAssign(assignIds);
     }
 
     // Log the import
