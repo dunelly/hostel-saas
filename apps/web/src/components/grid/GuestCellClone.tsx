@@ -1,5 +1,6 @@
 import { defaultDropAnimationSideEffects } from "@dnd-kit/core";
 import type { Assignment } from "./BedGrid";
+import { formatCompactGuestName, formatStayNights } from "./nameFormat";
 
 export const dropAnimationConfig = {
   duration: 180,
@@ -12,48 +13,32 @@ export const dropAnimationConfig = {
 };
 
 // Pure visual clone of a GuestCell for the DragOverlay
-export function GuestCellClone({ assignment, width }: { assignment: Assignment; width?: number }) {
-  const sourceBarColors: Record<string, string> = {
-    "booking.com": "bg-blue-500",
-    hostelworld: "bg-orange-500",
-    manual: "bg-emerald-500",
-  };
-  const barColor = sourceBarColors[assignment.source] || "bg-slate-400";
-
+export function GuestCellClone({ assignment, width, guestIndex }: { assignment: Assignment; width?: number; guestIndex?: number | null }) {
+  const displayName = formatCompactGuestName(assignment.guestName, guestIndex);
+  const stayNights = formatStayNights(assignment.checkIn, assignment.checkOut);
   const colors = (() => {
     switch (assignment.status) {
-      case "checked_in":  return { bg: "bg-emerald-100", border: "border-emerald-300", text: "text-emerald-900" };
-      case "confirmed":   return { bg: "bg-blue-100",    border: "border-blue-300",    text: "text-blue-900"    };
-      case "checked_out": return { bg: "bg-slate-100",   border: "border-slate-200",   text: "text-slate-400"   };
-      case "no_show":     return { bg: "bg-red-100",     border: "border-red-300",     text: "text-red-700"     };
-      case "cancelled":   return { bg: "bg-slate-50",    border: "border-slate-200",   text: "text-slate-300"   };
-      default:            return { bg: "bg-blue-100",    border: "border-blue-300",    text: "text-blue-900"    };
+      case "checked_in":  return { bg: "bg-[#14b8a6]", border: "border-[#0d9488]/30", text: "text-white" };
+      case "confirmed":   return { bg: "bg-[#d1fae5]", border: "border-[#a7f3d0]", text: "text-[#0f766e]" };
+      case "checked_out": return { bg: "bg-[#dbeafe]", border: "border-[#93c5fd]", text: "text-[#1d4ed8]" };
+      case "no_show":     return { bg: "bg-[#fee2e2]", border: "border-[#fca5a5]", text: "text-[#b91c1c]" };
+      case "cancelled":   return { bg: "bg-[#f8fafc]", border: "border-[#e2e8f0]", text: "text-[#94a3b8]" };
+      default:            return { bg: "bg-[#ede9fe]", border: "border-[#c4b5fd]", text: "text-[#6d28d9]" };
     }
   })();
 
-  const payDot =
-    assignment.status !== "checked_out" &&
-    assignment.status !== "cancelled" &&
-    assignment.paymentStatus !== "paid" &&
-    assignment.paymentStatus !== "refunded"
-      ? assignment.paymentStatus === "partial" ? "bg-amber-400" : "bg-red-400"
-      : null;
-
   return (
     <div
-      className="h-9 flex items-center py-1 cursor-grabbing opacity-95 drop-shadow-xl"
+      className="h-9 flex items-center cursor-grabbing opacity-95 drop-shadow-xl"
       style={width ? { width } : { minWidth: 90 }}
     >
       <div
-        className={`w-full h-7 flex items-center rounded ml-1 mr-1 ${colors.bg} border ${colors.border} border-solid`}
+        className={`w-full h-9 flex items-center rounded-sm mx-0 ${colors.bg} border ${colors.border} border-solid`}
       >
-        <div className={`w-1 h-full ${barColor} opacity-90 rounded-l flex-shrink-0`} />
-        <span className={`truncate text-xs font-semibold px-1.5 ${colors.text} flex-1 min-w-0`}>
-          {assignment.guestName}
+        <span className={`flex min-w-0 flex-1 flex-col px-2 ${colors.text}`}>
+          <span className="truncate text-[10px] font-semibold leading-[11px]">{displayName}</span>
+          <span className="truncate text-[9px] font-semibold leading-[10px] opacity-75">{stayNights}</span>
         </span>
-        {payDot && (
-          <span className={`w-1.5 h-1.5 rounded-full ${payDot} flex-shrink-0 mr-1.5`} />
-        )}
       </div>
     </div>
   );

@@ -82,11 +82,11 @@ export function GridHeader({
             type="arrivals"
             expanded={expandedPill === "arrivals"}
             onToggle={() => setExpandedPill(expandedPill === "arrivals" ? null : "arrivals")}
-            className="bg-emerald-50 border-emerald-200 hover:bg-emerald-100"
-            icon={<LogIn size={12} className="text-emerald-600" />}
+            className="bg-[#eff4ff] border-[#d3e4fe] hover:bg-[#e5eeff]"
+            icon={<LogIn size={12} className="text-[#008378]" />}
             label={pending > 0
-              ? <><span className="font-semibold text-emerald-800">{pending} arriving</span>{done > 0 && <span className="text-emerald-500 ml-1">· {done} in</span>}</>
-              : <span className="font-semibold text-emerald-600">all checked in</span>
+              ? <><span className="font-semibold text-[#008378]">{pending} arriving</span>{done > 0 && <span className="text-[#6d7a77] ml-1">· {done} in</span>}</>
+              : <span className="font-semibold text-[#008378]">all checked in</span>
             }
             guests={todaySummary.arrivals}
             onGuestClick={scrollToBed}
@@ -102,11 +102,11 @@ export function GridHeader({
             type="departures"
             expanded={expandedPill === "departures"}
             onToggle={() => setExpandedPill(expandedPill === "departures" ? null : "departures")}
-            className="bg-slate-50 border-slate-200 hover:bg-slate-100"
-            icon={<LogOut size={12} className="text-slate-400" />}
+            className="bg-[#eff4ff] border-[#d3e4fe] hover:bg-[#e5eeff]"
+            icon={<LogOut size={12} className="text-[#6d7a77]" />}
             label={remaining > 0
-              ? <><span className="font-semibold text-slate-700">{remaining} departing</span>{done > 0 && <span className="text-slate-400 ml-1">· {done} out</span>}</>
-              : <span className="font-semibold text-slate-500">all out</span>
+              ? <><span className="font-semibold text-[#3f465c]">{remaining} departing</span>{done > 0 && <span className="text-[#6d7a77] ml-1">· {done} out</span>}</>
+              : <span className="font-semibold text-[#5c647a]">all out</span>
             }
             guests={todaySummary.departures}
             onGuestClick={scrollToBed}
@@ -119,9 +119,9 @@ export function GridHeader({
           type="unpaid"
           expanded={expandedPill === "unpaid"}
           onToggle={() => setExpandedPill(expandedPill === "unpaid" ? null : "unpaid")}
-          className="bg-red-50 border-red-200 hover:bg-red-100"
-          icon={<AlertCircle size={12} className="text-red-400" />}
-          label={<span className="font-semibold text-red-700">{todaySummary.unpaid.length} unpaid</span>}
+          className="bg-[#ffdad6] border-[#ffb4ab] hover:bg-[#ffe5e2]"
+          icon={<AlertCircle size={12} className="text-[#b61718]" />}
+          label={<span className="font-semibold text-[#b61718]">{todaySummary.unpaid.length} unpaid</span>}
           guests={todaySummary.unpaid}
           onGuestClick={scrollToBed}
           onClose={() => setExpandedPill(null)}
@@ -132,7 +132,7 @@ export function GridHeader({
 
       {/* Occupancy */}
       <div className="flex items-center gap-1.5 px-2.5 py-1 bg-white rounded-lg border border-slate-200 shadow-sm text-xs text-slate-600">
-        <Users size={12} className="text-slate-400" />
+        <Users size={12} className="text-[#6d7a77]" />
         <span className="font-semibold text-slate-900">{todayOccupied}/{totalBeds}</span>
         <span className="text-slate-400">({totalBeds > 0 ? Math.round((todayOccupied / totalBeds) * 100) : 0}%)</span>
       </div>

@@ -349,21 +349,105 @@ export function GuestDetailPanel({ reservation, onClose }: Props) {
         <div className="flex-1 overflow-y-auto">
 
           {/* ── FORM GRID ── */}
-          <div className="grid grid-cols-[68px_1fr_68px_1fr] text-[13px] border-b border-slate-200">
-            <div className="px-2.5 py-2 bg-slate-50 text-slate-500 font-bold text-[10px] uppercase tracking-wide border-b border-r border-slate-200">Bed</div>
-            <div className="px-2.5 py-2 text-slate-900 font-medium border-b border-r border-slate-200">{reservation.bedId || "—"}</div>
-            <div className="px-2.5 py-2 bg-slate-50 text-slate-500 font-bold text-[10px] uppercase tracking-wide border-b border-r border-slate-200">Source</div>
-            <div className="px-2.5 py-2 text-slate-900 font-medium border-b border-slate-200">{SOURCE_LABEL[reservation.source] || reservation.source}</div>
+          <div className="grid grid-cols-[72px_1fr_72px_1fr] text-[14px] border-b border-slate-200">
+            <div className="px-2.5 py-2.5 bg-slate-50 text-slate-500 font-bold text-[11px] uppercase tracking-wide border-b border-r border-slate-200">Bed</div>
+            <div className="px-2.5 py-2.5 text-slate-900 font-medium border-b border-r border-slate-200">{reservation.bedId || "—"}</div>
+            <div className="px-2.5 py-2.5 bg-slate-50 text-slate-500 font-bold text-[11px] uppercase tracking-wide border-b border-r border-slate-200">Source</div>
+            <div className="px-2.5 py-2.5 text-slate-900 font-medium border-b border-slate-200">{SOURCE_LABEL[reservation.source] || reservation.source}</div>
 
-            <div className="px-2.5 py-2 bg-slate-50 text-slate-500 font-bold text-[10px] uppercase tracking-wide border-b border-r border-slate-200">Check-in</div>
-            <div className="px-2.5 py-2 text-slate-900 font-medium border-b border-r border-slate-200">{format(new Date(reservation.checkIn + "T12:00:00"), "d MMM")}</div>
-            <div className="px-2.5 py-2 bg-slate-50 text-slate-500 font-bold text-[10px] uppercase tracking-wide border-b border-r border-slate-200">Check-out</div>
-            <div className="px-2.5 py-2 text-slate-900 font-medium border-b border-slate-200">{format(new Date(reservation.checkOut + "T12:00:00"), "d MMM")}</div>
+            <div className="px-2.5 py-2.5 bg-slate-50 text-slate-500 font-bold text-[11px] uppercase tracking-wide border-b border-r border-slate-200">Check-in</div>
+            <div className="px-2.5 py-2.5 text-slate-900 font-medium border-b border-r border-slate-200">{format(new Date(reservation.checkIn + "T12:00:00"), "d MMM")}</div>
+            <div className="px-2.5 py-2.5 bg-slate-50 text-slate-500 font-bold text-[11px] uppercase tracking-wide border-b border-r border-slate-200">Check-out</div>
+            <div className="px-2.5 py-2.5 text-slate-900 font-medium border-b border-slate-200">{format(new Date(reservation.checkOut + "T12:00:00"), "d MMM")}</div>
 
-            <div className="px-2.5 py-2 bg-slate-50 text-slate-500 font-bold text-[10px] uppercase tracking-wide border-b border-r border-slate-200">Nights</div>
-            <div className="px-2.5 py-2 text-slate-900 font-medium border-b border-r border-slate-200">{nights}</div>
-            <div className="px-2.5 py-2 bg-slate-50 text-slate-500 font-bold text-[10px] uppercase tracking-wide border-b border-r border-slate-200">Guests</div>
-            <div className="px-2.5 py-2 text-slate-900 font-medium border-b border-slate-200">{reservation.numGuests}</div>
+            <div className="px-2.5 py-2.5 bg-slate-50 text-slate-500 font-bold text-[11px] uppercase tracking-wide border-b border-r border-slate-200">Nights</div>
+            <div className="px-2.5 py-2.5 text-slate-900 font-medium border-b border-r border-slate-200">{nights}</div>
+            <div className="px-2.5 py-2.5 bg-slate-50 text-slate-500 font-bold text-[11px] uppercase tracking-wide border-b border-r border-slate-200">Guests</div>
+            <div className="px-2.5 py-2.5 text-slate-900 font-medium border-b border-slate-200">{reservation.numGuests}</div>
+          </div>
+
+          {/* ── TOOLBAR (inline, below grid) ── */}
+          <div className="px-2.5 py-2.5 border-b border-slate-200 flex gap-1.5 items-center flex-wrap bg-white">
+            {isConfirmed && !showCheckinForm && (
+              <button
+                onClick={() => setShowCheckinForm(true)}
+                disabled={isBusy}
+                className="px-3.5 py-1.5 text-xs font-bold rounded text-white disabled:opacity-50"
+                style={{ background: "#1e3a5f" }}
+              >
+                Check In
+              </button>
+            )}
+            {isCheckedIn && !showCheckoutConfirm && (
+              <button
+                onClick={() => {
+                  if (debt > 0) {
+                    setShowCheckoutConfirm(true);
+                  } else {
+                    updateMutation.mutate({ status: "checked_out" });
+                    setShowBill(true);
+                  }
+                }}
+                disabled={isBusy}
+                className="px-3.5 py-1.5 text-xs font-bold rounded text-white disabled:opacity-50"
+                style={{ background: "#1e3a5f" }}
+              >
+                Check Out
+              </button>
+            )}
+            {isCheckedOut && (
+              <button
+                onClick={() => updateMutation.mutate({ status: "checked_in" })}
+                disabled={isBusy}
+                className="px-3.5 py-1.5 text-xs font-bold rounded bg-white border border-slate-300 text-slate-600 hover:bg-slate-100 disabled:opacity-50"
+              >
+                Undo
+              </button>
+            )}
+            {!isCancelled && !isNoShow && (
+              <button
+                onClick={() => { setShowExtend(!showExtend); setExtendError(""); }}
+                className={`px-3.5 py-1.5 text-xs font-bold rounded border transition-colors ${
+                  showExtend ? "bg-blue-600 border-blue-600 text-white" : "bg-white border-slate-300 text-slate-600 hover:bg-slate-100"
+                }`}
+              >
+                Extend
+              </button>
+            )}
+            {guestProfile && (
+              <button
+                onClick={() => {
+                  if (!showGuestEdit) {
+                    setEditPhone(guestProfile.phone || "");
+                    setEditNat(guestProfile.nationality || "");
+                    setEditIdNum(guestProfile.idNumber || "");
+                    setEditNotes(guestProfile.notes || "");
+                  }
+                  setShowGuestEdit(!showGuestEdit);
+                }}
+                className={`px-3.5 py-1.5 text-xs font-bold rounded border transition-colors ${
+                  showGuestEdit ? "bg-slate-800 border-slate-800 text-white" : "bg-white border-slate-300 text-slate-600 hover:bg-slate-100"
+                }`}
+              >
+                Edit
+              </button>
+            )}
+            <button
+              onClick={() => setShowBill(!showBill)}
+              className={`px-3.5 py-1.5 text-xs font-bold rounded border transition-colors ${
+                showBill ? "bg-slate-800 border-slate-800 text-white" : "bg-white border-slate-300 text-slate-600 hover:bg-slate-100"
+              }`}
+            >
+              Bill
+            </button>
+            {!showPriceEdit && (
+              <button
+                onClick={() => setShowPriceEdit(true)}
+                className="px-3.5 py-1.5 text-xs font-bold rounded bg-white border border-slate-300 text-slate-600 hover:bg-slate-100"
+              >
+                Price
+              </button>
+            )}
           </div>
 
           {/* ── RECEIPT: Payment Summary ── */}
@@ -815,99 +899,14 @@ export function GuestDetailPanel({ reservation, onClose }: Props) {
           )}
         </div>
 
-        {/* ── TOOLBAR ── */}
-        <div className="shrink-0 px-2.5 py-2 bg-slate-50 border-t border-slate-200 flex gap-1 items-center">
-          {/* Primary action */}
-          {isConfirmed && !showCheckinForm && (
-            <button
-              onClick={() => setShowCheckinForm(true)}
-              disabled={isBusy}
-              className="px-3 py-1.5 text-[11px] font-bold rounded text-white disabled:opacity-50"
-              style={{ background: "#1e3a5f" }}
-            >
-              Check In
-            </button>
-          )}
-          {isCheckedIn && !showCheckoutConfirm && (
-            <button
-              onClick={() => {
-                if (debt > 0) {
-                  setShowCheckoutConfirm(true);
-                } else {
-                  updateMutation.mutate({ status: "checked_out" });
-                  setShowBill(true);
-                }
-              }}
-              disabled={isBusy}
-              className="px-3 py-1.5 text-[11px] font-bold rounded text-white disabled:opacity-50"
-              style={{ background: "#1e3a5f" }}
-            >
-              Check Out
-            </button>
-          )}
-          {isCheckedOut && (
-            <button
-              onClick={() => updateMutation.mutate({ status: "checked_in" })}
-              disabled={isBusy}
-              className="px-3 py-1.5 text-[11px] font-bold rounded bg-white border border-slate-300 text-slate-600 hover:bg-slate-100 disabled:opacity-50"
-            >
-              Undo
-            </button>
-          )}
-
-          {/* Secondary actions */}
-          {!isCancelled && !isNoShow && (
-            <button
-              onClick={() => { setShowExtend(!showExtend); setExtendError(""); }}
-              className={`px-3 py-1.5 text-[11px] font-bold rounded border transition-colors ${
-                showExtend ? "bg-blue-600 border-blue-600 text-white" : "bg-white border-slate-300 text-slate-600 hover:bg-slate-100"
-              }`}
-            >
-              Extend
-            </button>
-          )}
-          {guestProfile && (
-            <button
-              onClick={() => {
-                if (!showGuestEdit) {
-                  setEditPhone(guestProfile.phone || "");
-                  setEditNat(guestProfile.nationality || "");
-                  setEditIdNum(guestProfile.idNumber || "");
-                  setEditNotes(guestProfile.notes || "");
-                }
-                setShowGuestEdit(!showGuestEdit);
-              }}
-              className={`px-3 py-1.5 text-[11px] font-bold rounded border transition-colors ${
-                showGuestEdit ? "bg-slate-800 border-slate-800 text-white" : "bg-white border-slate-300 text-slate-600 hover:bg-slate-100"
-              }`}
-            >
-              Edit
-            </button>
-          )}
-          <button
-            onClick={() => setShowBill(!showBill)}
-            className={`px-3 py-1.5 text-[11px] font-bold rounded border transition-colors ${
-              showBill ? "bg-slate-800 border-slate-800 text-white" : "bg-white border-slate-300 text-slate-600 hover:bg-slate-100"
-            }`}
-          >
-            Bill
-          </button>
-          {!showPriceEdit && (
-            <button
-              onClick={() => setShowPriceEdit(true)}
-              className="px-3 py-1.5 text-[11px] font-bold rounded bg-white border border-slate-300 text-slate-600 hover:bg-slate-100"
-            >
-              Price
-            </button>
-          )}
-
-          {/* Destructive actions — text links, pushed right */}
-          <div className="flex items-center gap-2 ml-auto">
+        {/* ── DESTRUCTIVE STRIP (pinned bottom) ── */}
+        {(isConfirmed || isActive) && (
+          <div className="shrink-0 px-3 py-2 bg-slate-50 border-t border-slate-200 flex items-center gap-3 justify-end">
             {isConfirmed && (
               <button
                 onClick={() => updateMutation.mutate({ status: "no_show" })}
                 disabled={isBusy}
-                className="text-[11px] font-semibold text-amber-700 hover:text-amber-900 disabled:opacity-50 transition-colors"
+                className="text-xs font-semibold text-amber-700 hover:text-amber-900 disabled:opacity-50 transition-colors"
               >
                 No Show
               </button>
@@ -916,13 +915,13 @@ export function GuestDetailPanel({ reservation, onClose }: Props) {
               <button
                 onClick={() => updateMutation.mutate({ status: "cancelled" })}
                 disabled={isBusy}
-                className="text-[11px] font-semibold text-red-500 hover:text-red-700 disabled:opacity-50 transition-colors"
+                className="text-xs font-semibold text-red-500 hover:text-red-700 disabled:opacity-50 transition-colors"
               >
                 Cancel
               </button>
             )}
           </div>
-        </div>
+        )}
       </div>
 
       <style jsx global>{`

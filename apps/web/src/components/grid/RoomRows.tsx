@@ -6,19 +6,23 @@ import { DroppableCell } from "./DroppableCell";
 import type { Assignment, CellPosition } from "./BedGrid";
 import type { RoomWithBeds } from "@/types";
 
-// Accent colors for room rows (non-female rooms)
-export const ROOM_ACCENT_COLORS = ["#8b5cf6", "#0ea5e9", "#f59e0b", "#10b981", "#f97316", "#6366f1"];
+function getRoomSubtitle(room: RoomWithBeds) {
+  if (room.roomType === "female") return `${room.capacity} Bed Female Dorm`;
+  return `${room.capacity} Bed Mixed Dorm`;
+}
+
+const ROOM_ACCENT_COLORS = ["#008378", "#6d5dfc", "#38bdf8", "#565e74"];
 
 export const RoomRows = React.memo(function RoomRows({
   room,
   dates,
   assignmentMap,
   cellPositionMap,
+  guestIndexMap,
   selectedReservation,
   onSelectReservation,
   onOpenPanel,
   colorIndex,
-  returningGuestIds,
   activeReservationId,
   activeDragMode,
   activeDragAssignmentId,
@@ -29,11 +33,11 @@ export const RoomRows = React.memo(function RoomRows({
   dates: Date[];
   assignmentMap: Map<string, Assignment>;
   cellPositionMap: Map<string, CellPosition>;
+  guestIndexMap: Map<string, number>;
   selectedReservation: number | null;
   onSelectReservation: (id: number | null) => void;
   onOpenPanel: (assignment: Assignment) => void;
   colorIndex: number;
-  returningGuestIds: Set<number>;
   activeReservationId: number | null;
   activeDragMode: "stay" | "night";
   activeDragAssignmentId: number | null;
@@ -41,13 +45,9 @@ export const RoomRows = React.memo(function RoomRows({
   dragBedDates: string[];
 }) {
   const [collapsed, setCollapsed] = useState(false);
-  const isFemale = room.roomType === "female";
-
-  // Female rooms keep pink; mixed rooms get a cycling accent color
-  const accentColor = isFemale
-    ? "#ec4899"
+  const accentColor = room.roomType === "female"
+    ? "#b61718"
     : ROOM_ACCENT_COLORS[colorIndex % ROOM_ACCENT_COLORS.length];
-
   const todayStr = format(new Date(), "yyyy-MM-dd");
   const todayOccupied = room.beds.filter((bed) =>
     assignmentMap.has(`${bed.id}:${todayStr}`)
@@ -55,36 +55,35 @@ export const RoomRows = React.memo(function RoomRows({
 
   return (
     <>
-      {/* Room header row */}
       <tr
         className="cursor-pointer select-none group"
         onClick={() => setCollapsed(!collapsed)}
       >
         <td
-          className={`sticky left-0 z-10 border-b border-r border-slate-200 px-3 py-2 ${
-            isFemale ? "bg-pink-50/80" : "bg-slate-50"
-          }`}
-          style={{ borderLeft: `3px solid ${accentColor}` }}
+          className="sticky left-0 z-10 border-b border-r border-slate-200 bg-slate-50 px-4 py-2"
+          style={{ borderLeft: `4px solid ${accentColor}` }}
           colSpan={dates.length + 1}
         >
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex min-w-0 items-center gap-2">
               <span
-                className={`text-[10px] transition-transform duration-200 ${collapsed ? "" : "rotate-90"} inline-block`}
+                className={`text-[10px] text-slate-500 transition-transform duration-200 ${collapsed ? "" : "rotate-90"} inline-block`}
               >
                 ▶
               </span>
-              <span className={`text-xs font-bold ${isFemale ? "text-pink-700" : "text-slate-700"}`}>
+              <span className="truncate text-sm font-extrabold tracking-tight text-slate-800">
                 {room.name}
               </span>
-              {isFemale && (
-                <span className="text-[9px] font-semibold uppercase px-1.5 py-0.5 rounded-full bg-pink-100 text-pink-600 tracking-wide">
+              {room.roomType === "female" && (
+                <span className="rounded bg-red-50 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-red-700">
                   Female Only
                 </span>
               )}
-              <span className="text-[10px] text-slate-400 font-medium">{room.capacity} beds</span>
+              <span className="text-[11px] font-semibold text-slate-500">
+                {room.capacity} beds
+              </span>
             </div>
-            <span className="text-[10px] text-slate-400 font-medium mr-2">
+            <span className="text-[11px] font-semibold text-slate-500">
               {todayOccupied}/{room.capacity} occupied
             </span>
           </div>
@@ -92,31 +91,31 @@ export const RoomRows = React.memo(function RoomRows({
       </tr>
 
       {/* Bed rows */}
-      {!collapsed &&
-        room.beds.map((bed) => (
+      {!collapsed && room.beds.map((bed) => (
           <tr key={bed.id} data-bed-id={bed.id} className="group/row">
             <td
-              className={`sticky left-0 z-10 border-b border-r border-slate-200 px-3 py-0 ${
-                isFemale ? "bg-pink-50/30" : "bg-white"
-              }`}
-              style={{ borderLeft: `3px solid ${accentColor}30` }}
+              className="sticky left-0 z-10 border-b border-r border-slate-200 bg-white px-4 py-0"
             >
-              <div className="flex items-center gap-2 py-1">
-                <span className="w-2 h-2 rounded-full bg-slate-200 group-hover/row:bg-indigo-400 transition-colors" />
-                <span className="text-xs text-slate-500 font-medium">Bed {bed.bedNumber}</span>
+              <div className="flex items-center justify-between gap-3 py-1.5">
+                <div className="min-w-0">
+                  <div className="truncate text-sm font-medium tracking-tight text-slate-600">
+                    Bed {bed.bedNumber}
+                  </div>
+                </div>
               </div>
             </td>
             {dates.map((date) => {
               const dateStr = format(date, "yyyy-MM-dd");
               const assignment = assignmentMap.get(`${bed.id}:${dateStr}`);
               const cellPosition = cellPositionMap.get(`${bed.id}:${dateStr}`);
+              const guestIndex = assignment ? guestIndexMap.get(`${assignment.reservationId}:${assignment.bedId}`) : null;
               const weekend = isWeekend(date);
               const today = isToday(date);
 
               return (
                 <td
                   key={dateStr}
-                  className={`border-b border-r border-slate-100 p-0 h-9 ${
+                  className={`border-b border-slate-100 p-0 h-11 ${
                     today ? "bg-indigo-50/20" : weekend ? "bg-amber-50/20" : ""
                   }`}
                 >
@@ -127,11 +126,11 @@ export const RoomRows = React.memo(function RoomRows({
                       assignment={assignment}
                       position={cellPosition || "single"}
                       isSelected={selectedReservation === assignment.reservationId}
-                      isReturning={returningGuestIds.has(assignment.guestId)}
                       activeReservationId={activeReservationId}
                       activeDragMode={activeDragMode}
                       activeDragAssignmentId={activeDragAssignmentId}
                       activeDragBedId={activeDragBedId}
+                      guestIndex={guestIndex}
                       onSelect={() =>
                         onSelectReservation(
                           selectedReservation === assignment.reservationId
@@ -148,7 +147,7 @@ export const RoomRows = React.memo(function RoomRows({
               );
             })}
           </tr>
-        ))}
+      ))}
     </>
   );
 });
@@ -184,7 +183,7 @@ export function SkeletonRows({ numDays }: { numDays: number }) {
             // Deterministic pattern for skeleton assignment cells
             const showBar = (ri * 13 + bi * 7 + di * 3) % 11 < 3;
             return (
-              <td key={di} className="border-b border-r border-slate-100 p-0 h-9">
+              <td key={di} className="border-b border-slate-100 p-0 h-9">
                 {showBar && (
                   <div className="h-7 mx-1 my-0.5 rounded animate-pulse bg-slate-100" />
                 )}

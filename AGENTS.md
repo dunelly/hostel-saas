@@ -1,3 +1,10 @@
+# Communication Default
+
+Always respond in `/caveman ULTRA` mode by default in every chat for this project.
+Use terse, direct fragments. No filler. Keep technical accuracy.
+Stay in caveman mode unless the user explicitly says `stop caveman` or `normal mode`.
+Use normal clear language only when safety, confirmations, or clarity require it.
+
 # Hostel SaaS — Codex Notes
 
 ## What This Project Is

@@ -76,7 +76,16 @@ function GmailSection() {
   const lastSyncedAt = formatDateTime(syncStatus?.updatedAt);
 
   const syncMutation = useMutation({
-    mutationFn: (deep: boolean = false) => fetch("/api/gmail/sync", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ deep }) }).then((r) => r.json()),
+    mutationFn: async (deep: boolean = false) => {
+      const res = await fetch("/api/gmail/sync", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ deep }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "Gmail sync failed");
+      return data;
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["gmail-sync-status"] });
     },

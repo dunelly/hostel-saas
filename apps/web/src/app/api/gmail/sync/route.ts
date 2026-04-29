@@ -19,6 +19,18 @@ async function setSyncResult(result: object) {
 
 export async function POST(request: Request) {
   try {
+    const expectedKey = process.env.IMPORT_API_KEY;
+    const providedKey = request.headers.get("x-api-key");
+    const origin = request.headers.get("origin");
+    const requestOrigin = new URL(request.url).origin;
+    const isSameOrigin = !!origin && origin === requestOrigin;
+
+    const hasValidKey = !!expectedKey && providedKey === expectedKey;
+
+    if (!isSameOrigin && !hasValidKey) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
     const row = await db.select().from(settings).where(eq(settings.key, "gmail_tokens")).get();
     if (!row) return NextResponse.json({ error: "Gmail not connected" }, { status: 401 });
 

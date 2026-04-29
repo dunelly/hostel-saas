@@ -1,5 +1,6 @@
 let currentTab = null;
 let currentOta = null;
+const STALE_SYNC_MS = 3 * 60 * 1000;
 
 document.addEventListener("DOMContentLoaded", async () => {
   // Load settings
@@ -72,18 +73,30 @@ async function resumeInProgressSyncs() {
 
   // Booking.com: still running
   if (lastQuickImport && !lastQuickImport.done) {
-    const btn = document.getElementById("quickSyncBtn");
-    setSpinner(btn, "Syncing...");
-    showStatus("Booking.com sync in progress...", "info");
-    pollBookingSync(btn);
+    const startedAt = new Date(lastQuickImport.timestamp || 0).getTime();
+    if (!startedAt || Date.now() - startedAt > STALE_SYNC_MS) {
+      await chrome.storage.local.set({ lastQuickImport: null });
+      showStatus("Previous Booking.com sync stalled. Click Sync again.", "error");
+    } else {
+      const btn = document.getElementById("quickSyncBtn");
+      setSpinner(btn, "Syncing...");
+      showStatus("Booking.com sync in progress...", "info");
+      pollBookingSync(btn);
+    }
   }
 
   // Gmail: still running
   if (lastGmailSync && !lastGmailSync.done) {
-    const btn = document.getElementById("gmailSyncBtn");
-    setSpinner(btn, "Syncing...");
-    showStatus("Gmail sync in progress...", "info");
-    pollGmailSync(btn);
+    const startedAt = new Date(lastGmailSync.timestamp || 0).getTime();
+    if (!startedAt || Date.now() - startedAt > STALE_SYNC_MS) {
+      await chrome.storage.local.set({ lastGmailSync: null });
+      showStatus("Previous Gmail sync stalled. Click Sync again.", "error");
+    } else {
+      const btn = document.getElementById("gmailSyncBtn");
+      setSpinner(btn, "Syncing...");
+      showStatus("Gmail sync in progress...", "info");
+      pollGmailSync(btn);
+    }
   }
   // Gmail: finished while popup was closed — show the result
   else if (lastGmailSync?.done && !lastGmailSync.error) {

@@ -105,6 +105,39 @@ export function BedGrid() {
     return map;
   }, [assignments]);
 
+  const bedOrderMap = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const room of rooms) {
+      [...room.beds]
+        .sort((a, b) => a.bedNumber - b.bedNumber)
+        .forEach((bed, index) => {
+          map.set(bed.id, index + 1);
+        });
+    }
+    return map;
+  }, [rooms]);
+
+  const guestIndexMap = useMemo(() => {
+    const reservationBeds = new Map<number, Set<string>>();
+    for (const a of assignments) {
+      if (!reservationBeds.has(a.reservationId)) {
+        reservationBeds.set(a.reservationId, new Set());
+      }
+      reservationBeds.get(a.reservationId)!.add(a.bedId);
+    }
+
+    const map = new Map<string, number>();
+    for (const [reservationId, bedIds] of reservationBeds) {
+      if (bedIds.size <= 1) continue;
+      [...bedIds]
+        .sort((a, b) => (bedOrderMap.get(a) ?? 0) - (bedOrderMap.get(b) ?? 0) || a.localeCompare(b))
+        .forEach((bedId, index) => {
+          map.set(`${reservationId}:${bedId}`, index + 1);
+        });
+    }
+    return map;
+  }, [assignments, bedOrderMap]);
+
   // Returning guest detection: guestId with multiple reservationIds
   const returningGuestIds = useMemo(() => {
     const guestReservations = new Map<number, Set<number>>();
@@ -242,9 +275,10 @@ export function BedGrid() {
           <table className="w-full border-collapse">
             <thead className="sticky top-0 z-30">
               <tr>
-                <th className="sticky left-0 z-40 bg-slate-50 border-b border-r border-slate-200 p-0 w-36 min-w-[144px]">
-                  <div className="px-3 py-2.5 text-xs font-semibold text-slate-500 uppercase tracking-wider">
+                <th className="sticky left-0 z-40 bg-slate-50 border-b border-r border-slate-200 p-0 w-[180px] min-w-[180px] max-w-[180px]">
+                  <div className="flex items-center justify-between px-4 py-4 text-[12px] font-semibold text-slate-400 uppercase tracking-wider">
                     Room / Bed
+                    <span className="h-px w-5 bg-slate-300" />
                   </div>
                 </th>
                 {dates.map((date) => {
@@ -253,65 +287,35 @@ export function BedGrid() {
                   const dateStr = format(date, "yyyy-MM-dd");
                   const occ = occupancyByDate.get(dateStr) || 0;
                   const occPct = totalBeds > 0 ? occ / totalBeds : 0;
-
-                  // Heatmap: today > high-occ > med-occ > weekend > default
                   const headerBg = today
-                    ? "bg-indigo-50"
-                    : occPct >= 0.85
-                      ? "bg-red-50"
-                      : occPct >= 0.6
-                        ? "bg-amber-50"
-                        : weekend
-                          ? "bg-amber-50/40"
-                          : "bg-slate-50";
+                    ? "bg-teal-50"
+                    : weekend
+                      ? "bg-slate-50"
+                      : "bg-white";
 
                   return (
                     <th
                       key={date.toISOString()}
-                      className={`border-b border-r border-slate-200 p-0 min-w-[90px] ${headerBg}`}
+                      className={`border-b border-slate-200 p-0 w-[120px] min-w-[120px] max-w-[120px] ${headerBg}`}
                       title={`${occ}/${totalBeds} beds full (${Math.round(occPct * 100)}%)`}
                     >
                       <div className="px-2 py-2 text-center">
                         <div
                           className={`text-[10px] font-medium uppercase tracking-wide ${
                             today
-                              ? "text-indigo-500"
-                              : occPct >= 0.85
-                                ? "text-red-500"
-                                : occPct >= 0.6
-                                  ? "text-amber-600"
-                                  : weekend
-                                    ? "text-amber-600/70"
-                                    : "text-slate-400"
+                              ? "text-teal-600"
+                              : "text-slate-400"
                           }`}
                         >
                           {format(date, "EEE")}
                         </div>
                         <div
                           className={`text-xs font-semibold mt-0.5 ${
-                            today ? "text-indigo-700" : "text-slate-700"
+                            today ? "text-teal-600" : "text-slate-900"
                           }`}
                         >
                           {format(date, "d")}
                         </div>
-                        {today && (
-                          <div className="w-1 h-1 bg-indigo-500 rounded-full mx-auto mt-1" />
-                        )}
-                        {/* Occupancy heat bar */}
-                        {!today && occPct > 0 && (
-                          <div className="mt-1.5 h-0.5 w-full bg-slate-200 rounded-full overflow-hidden">
-                            <div
-                              className={`h-full rounded-full ${
-                                occPct >= 0.85
-                                  ? "bg-red-400"
-                                  : occPct >= 0.6
-                                    ? "bg-amber-400"
-                                    : "bg-emerald-400"
-                              }`}
-                              style={{ width: `${Math.min(100, occPct * 100)}%` }}
-                            />
-                          </div>
-                        )}
                       </div>
                     </th>
                   );
@@ -329,11 +333,11 @@ export function BedGrid() {
                     dates={dates}
                     assignmentMap={assignmentMap}
                     cellPositionMap={cellPositionMap}
+                    guestIndexMap={guestIndexMap}
                     selectedReservation={selectedReservation}
                     onSelectReservation={setSelectedReservation}
                     onOpenPanel={setPanelAssignment}
                     colorIndex={roomIndex}
-                    returningGuestIds={returningGuestIds}
                     activeReservationId={!isExtendingOverlay && draggedAssignment ? draggedAssignment.reservationId : null}
                     activeDragMode={dragMode}
                     activeDragAssignmentId={draggedAssignment?.id ?? null}
@@ -366,7 +370,8 @@ export function BedGrid() {
                 overlayWidth = Math.max(1, bedNights) * dragCellWidth;
               }
             }
-            return <GuestCellClone assignment={draggedAssignment} width={overlayWidth} />;
+            const guestIndex = guestIndexMap.get(`${draggedAssignment.reservationId}:${draggedAssignment.bedId}`);
+            return <GuestCellClone assignment={draggedAssignment} width={overlayWidth} guestIndex={guestIndex} />;
           })()}
           {draggedAssignment && isExtendingOverlay && (
             <div className="bg-indigo-100 border border-indigo-300 text-indigo-800 shadow-xl text-xs px-2.5 py-1.5 rounded-lg flex items-center gap-1.5 font-medium">
