@@ -28,6 +28,12 @@ interface LaundryItem {
   droppedOffAt: string;
 }
 
+interface BalanceTotal {
+  total: number;
+  paid: number;
+  owed: number;
+}
+
 interface ResItem {
   id: number;
   checkIn: string;
@@ -49,11 +55,11 @@ interface GuestProfile {
   reservations: ResItem[];
   tours: TourItem[];
   laundry: LaundryItem[];
-  totals: {
-    room: { total: number; paid: number; owed: number };
-    tours: { total: number; paid: number; owed: number };
-    laundry: { total: number; paid: number; owed: number };
-    grand: { total: number; paid: number; owed: number };
+  totals?: {
+    room?: BalanceTotal;
+    tours?: BalanceTotal;
+    laundry?: BalanceTotal;
+    grand?: BalanceTotal;
   };
 }
 
@@ -94,6 +100,17 @@ const SOURCE_LABEL: Record<string, string> = {
   hostelworld: "Hostelworld",
   manual: "Walk-in",
 };
+
+const ZERO_TOTAL: BalanceTotal = { total: 0, paid: 0, owed: 0 };
+
+function normalizeGuestTotals(profile: GuestProfile | undefined) {
+  return {
+    room: profile?.totals?.room ?? ZERO_TOTAL,
+    tours: profile?.totals?.tours ?? ZERO_TOTAL,
+    laundry: profile?.totals?.laundry ?? ZERO_TOTAL,
+    grand: profile?.totals?.grand ?? ZERO_TOTAL,
+  };
+}
 
 export function GuestDetailPanel({ reservation, onClose }: Props) {
   const queryClient = useQueryClient();
@@ -188,7 +205,7 @@ export function GuestDetailPanel({ reservation, onClose }: Props) {
       }
     }
 
-    const gt = g.totals.grand;
+    const gt = normalizeGuestTotals(g).grand;
     html += `<tr class="total-row"><td>Total</td><td>${c} ${fmt(gt.total)}</td></tr>`;
     if (gt.paid > 0) html += `<tr class="paid-row"><td>Paid</td><td>− ${c} ${fmt(gt.paid)}</td></tr>`;
     html += `<tr class="${gt.owed > 0 ? "owed-row" : "zero"}"><td>${gt.owed > 0 ? "Balance Due" : "Balance"}</td><td>${gt.owed > 0 ? `${c} ${fmt(gt.owed)}` : "Paid ✓"}</td></tr>`;
@@ -265,6 +282,7 @@ export function GuestDetailPanel({ reservation, onClose }: Props) {
   const debt = Math.max(0, totalPrice - amountPaid);
   const perNight = totalPrice > 0 && nights > 0 ? totalPrice / nights : 0;
   const cur = reservation.currency || "VND";
+  const guestTotals = normalizeGuestTotals(guestProfile);
 
   const isConfirmed  = reservation.status === "confirmed";
   const isCheckedIn  = reservation.status === "checked_in";
@@ -278,7 +296,7 @@ export function GuestDetailPanel({ reservation, onClose }: Props) {
   const extendDate = format(addDays(parseISO(reservation.checkOut), extendNights), "yyyy-MM-dd");
 
 
-  const grandOwed = guestProfile?.totals.grand.owed ?? 0;
+  const grandOwed = guestTotals.grand.owed;
 
   function handleAddPayment() {
     const adding = parseFloat(payAmount);
@@ -639,7 +657,7 @@ export function GuestDetailPanel({ reservation, onClose }: Props) {
           )}
 
           {/* Grand balance across services */}
-          {guestProfile?.totals && grandOwed > 0 && grandOwed !== debt && (
+          {guestProfile && grandOwed > 0 && grandOwed !== debt && (
             <div className="mx-3 my-2 flex items-center gap-2 px-3 py-2 bg-amber-50 rounded border border-amber-200">
               <AlertCircle size={12} className="text-amber-500 shrink-0" />
               <span className="text-[11px] font-semibold text-amber-700">
@@ -819,24 +837,24 @@ export function GuestDetailPanel({ reservation, onClose }: Props) {
                 <div className="flex justify-between items-baseline">
                   <span className="text-sm font-bold text-slate-800">Grand Total</span>
                   <span className="text-base font-extrabold text-slate-800 tabular-nums">
-                    {cur} {guestProfile.totals.grand.total.toLocaleString()}
+                    {cur} {guestTotals.grand.total.toLocaleString()}
                   </span>
                 </div>
-                {guestProfile.totals.grand.paid > 0 && (
+                {guestTotals.grand.paid > 0 && (
                   <div className="flex justify-between items-baseline mt-0.5">
                     <span className="text-xs text-emerald-600">Paid</span>
                     <span className="text-xs font-semibold text-emerald-600 tabular-nums">
-                      − {cur} {guestProfile.totals.grand.paid.toLocaleString()}
+                      − {cur} {guestTotals.grand.paid.toLocaleString()}
                     </span>
                   </div>
                 )}
                 <div className="flex justify-between items-baseline mt-0.5">
-                  <span className="text-xs font-bold" style={{ color: guestProfile.totals.grand.owed > 0 ? "#dc2626" : "#059669" }}>
-                    {guestProfile.totals.grand.owed > 0 ? "Balance Due" : "Balance"}
+                  <span className="text-xs font-bold" style={{ color: guestTotals.grand.owed > 0 ? "#dc2626" : "#059669" }}>
+                    {guestTotals.grand.owed > 0 ? "Balance Due" : "Balance"}
                   </span>
-                  <span className="text-sm font-extrabold tabular-nums" style={{ color: guestProfile.totals.grand.owed > 0 ? "#dc2626" : "#059669" }}>
-                    {guestProfile.totals.grand.owed > 0
-                      ? `${cur} ${guestProfile.totals.grand.owed.toLocaleString()}`
+                  <span className="text-sm font-extrabold tabular-nums" style={{ color: guestTotals.grand.owed > 0 ? "#dc2626" : "#059669" }}>
+                    {guestTotals.grand.owed > 0
+                      ? `${cur} ${guestTotals.grand.owed.toLocaleString()}`
                       : "Paid ✓"}
                   </span>
                 </div>

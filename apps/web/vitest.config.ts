@@ -22,10 +22,20 @@ function loadEnvLocal() {
 }
 
 export default defineConfig({
+  resolve: {
+    alias: {
+      "@": resolve(__dirname, "src"),
+    },
+  },
   test: {
+    globalSetup: ["./tests/global-setup.ts"],
     testTimeout: 60_000,
     hookTimeout: 30_000,
     fileParallelism: false,
-    env: loadEnvLocal(),
+    env: {
+      ...loadEnvLocal(),
+      TURSO_DATABASE_URL: "file:local.test.db",
+      TURSO_AUTH_TOKEN: "",
+    },
   },
 });

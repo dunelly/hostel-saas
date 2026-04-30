@@ -207,6 +207,15 @@ export async function autoAssign(
         }
 
         if (splitFailed) {
+          await db
+            .delete(bedAssignments)
+            .where(
+              and(
+                eq(bedAssignments.reservationId, reservation.id),
+                eq(bedAssignments.guestName, guestLabel),
+                eq(bedAssignments.isManual, 0)
+              )
+            );
           result.errors.push(
             `Partially assigned ${guestLabel}: some nights have no beds available (${reservation.checkIn} to ${reservation.checkOut})`
           );

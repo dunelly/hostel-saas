@@ -18,7 +18,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Import reservations
-    const { newIds, assignIds, duplicateCount, errors } = await importReservations(
+    const { newIds, assignIds, duplicateCount, updatedCount, errors, warnings } = await importReservations(
       parsed.data.reservations
     );
 
@@ -40,10 +40,12 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({
       imported: newIds.length,
+      updated: updatedCount,
       duplicates: duplicateCount,
       assigned: assignmentResult.assigned,
       unassigned: assignmentResult.unassigned,
       errors: [...errors, ...assignmentResult.errors],
+      warnings,
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown error";
