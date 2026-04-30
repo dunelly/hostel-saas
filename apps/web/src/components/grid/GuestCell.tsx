@@ -148,8 +148,8 @@ export const GuestCell = React.memo(function GuestCell({
         {/* Guest name */}
         {showName && (
           <span className={`flex min-w-0 flex-1 flex-col px-2 ${colors.text}`}>
-            <span className="truncate text-[11px] font-semibold leading-[12px]">{displayName}</span>
-            <span className="truncate text-[9px] font-semibold leading-[10px] opacity-75">{stayNights}</span>
+            <span className="truncate text-[13px] font-semibold leading-[14px]">{displayName}</span>
+            <span className="truncate text-[10px] font-semibold leading-[11px] opacity-75">{stayNights}</span>
           </span>
         )}
 

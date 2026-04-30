@@ -2,7 +2,7 @@
 
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
-import { format } from "date-fns";
+import { addDays, format, parseISO } from "date-fns";
 import { GuestDetailPanel } from "@/components/GuestDetailPanel";
 import {
   Plus,
@@ -557,10 +557,47 @@ function ManualEntryForm({
   const [form, setForm] = useState({
     guestName: "",
     checkIn: format(new Date(), "yyyy-MM-dd"),
-    checkOut: "",
+    checkOut: format(addDays(new Date(), 1), "yyyy-MM-dd"),
     roomTypeReq: "mixed",
     numGuests: 1,
   });
+  const [nights, setNights] = useState(1);
+  const [customNights, setCustomNights] = useState("");
+
+  function setStayLength(nextNights: number, nextCheckIn = form.checkIn) {
+    const clamped = Math.max(1, nextNights);
+    setNights(clamped);
+    setForm({
+      ...form,
+      checkIn: nextCheckIn,
+      checkOut: format(addDays(parseISO(nextCheckIn), clamped), "yyyy-MM-dd"),
+    });
+  }
+
+  function handleCheckInChange(nextCheckIn: string) {
+    setStayLength(nights, nextCheckIn);
+  }
+
+  function handleCheckOutChange(nextCheckOut: string) {
+    const diff = Math.round(
+      (new Date(nextCheckOut).getTime() - new Date(form.checkIn).getTime()) / 86400000
+    );
+    const clamped = Math.max(1, diff);
+    setNights(clamped);
+    setCustomNights(clamped > 7 ? String(clamped) : "");
+    setForm({ ...form, checkOut: nextCheckOut });
+  }
+
+  function handlePresetNightClick(nextNights: number) {
+    setCustomNights("");
+    setStayLength(nextNights);
+  }
+
+  function handleCustomNightsChange(value: string) {
+    setCustomNights(value);
+    const parsed = parseInt(value, 10);
+    if (Number.isFinite(parsed)) setStayLength(parsed);
+  }
 
   return (
     <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5">
@@ -597,7 +634,7 @@ function ManualEntryForm({
           <input
             type="date"
             value={form.checkIn}
-            onChange={(e) => setForm({ ...form, checkIn: e.target.value })}
+            onChange={(e) => handleCheckInChange(e.target.value)}
             className="w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-slate-900/10 focus:border-slate-300"
           />
         </div>
@@ -608,7 +645,8 @@ function ManualEntryForm({
           <input
             type="date"
             value={form.checkOut}
-            onChange={(e) => setForm({ ...form, checkOut: e.target.value })}
+            min={format(addDays(parseISO(form.checkIn), 1), "yyyy-MM-dd")}
+            onChange={(e) => handleCheckOutChange(e.target.value)}
             className="w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-slate-900/10 focus:border-slate-300"
           />
         </div>
@@ -639,6 +677,40 @@ function ManualEntryForm({
             }
             className="w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-slate-900/10 focus:border-slate-300"
           />
+        </div>
+        <div className="md:col-span-2">
+          <label className="block text-[11px] font-medium text-slate-500 uppercase tracking-wider mb-1.5">
+            Nights
+          </label>
+          <div className="flex items-center gap-1">
+            {[1, 2, 3, 4, 5, 7].map((n) => (
+              <button
+                key={n}
+                type="button"
+                onClick={() => handlePresetNightClick(n)}
+                className={`h-10 w-8 rounded-lg text-xs font-semibold transition-colors ${
+                  nights === n
+                    ? "bg-slate-900 text-white"
+                    : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                }`}
+              >
+                {n}
+              </button>
+            ))}
+            <input
+              type="number"
+              min={8}
+              max={365}
+              value={customNights}
+              onChange={(e) => handleCustomNightsChange(e.target.value)}
+              placeholder="Custom"
+              className={`h-10 w-20 rounded-lg border px-2 text-xs font-semibold outline-none transition-colors ${
+                nights > 7
+                  ? "border-slate-900 bg-slate-900 text-white placeholder:text-white/70"
+                  : "border-slate-200 bg-slate-100 text-slate-600 placeholder:text-slate-400 focus:border-slate-400 focus:bg-white"
+              }`}
+            />
+          </div>
         </div>
       </div>
       <div className="flex gap-2 mt-4 pt-4 border-t border-slate-100">

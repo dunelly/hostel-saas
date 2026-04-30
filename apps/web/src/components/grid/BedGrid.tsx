@@ -396,6 +396,7 @@ export function BedGrid() {
         <GuestDetailPanel
           reservation={{
             id: livePanelAssignment.reservationId,
+            guestId: livePanelAssignment.guestId,
             source: livePanelAssignment.source,
             guestName: livePanelAssignment.guestName,
             checkIn: livePanelAssignment.checkIn,

@@ -52,21 +52,20 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "No overlapping dates to swap" }, { status: 400 });
     }
 
-    // Swap: A's assignments on overlap dates go to bedB, B's go to bedA
-    // Use a temp bedId to avoid unique constraint violations during swap
-    const tempBed = `__swap_temp_${Date.now()}`;
-
+    // Swap: A's assignments on overlap dates go to bedB, B's go to bedA.
+    // Temporarily move A's date, not bed, because bed_id has a foreign key.
     for (const date of overlapDates) {
       const aAssign = assignmentsA.find((a) => a.date === date);
       const bAssign = assignmentsB.find((a) => a.date === date);
       if (!aAssign || !bAssign) continue;
+      const tempDate = `__swap_temp_${aAssign.id}_${Date.now()}`;
 
-      // Move A to temp
-      await db.update(bedAssignments).set({ bedId: tempBed }).where(eq(bedAssignments.id, aAssign.id));
+      // Move A off the unique (bedId, date) slot.
+      await db.update(bedAssignments).set({ date: tempDate }).where(eq(bedAssignments.id, aAssign.id));
       // Move B to A's bed
       await db.update(bedAssignments).set({ bedId: bedIdA, isManual: 1 }).where(eq(bedAssignments.id, bAssign.id));
-      // Move A from temp to B's bed
-      await db.update(bedAssignments).set({ bedId: bedIdB, isManual: 1 }).where(eq(bedAssignments.id, aAssign.id));
+      // Move A back onto the original date in B's bed
+      await db.update(bedAssignments).set({ bedId: bedIdB, date, isManual: 1 }).where(eq(bedAssignments.id, aAssign.id));
     }
 
     // Also swap non-overlapping dates (full stay swap)

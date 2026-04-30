@@ -36,7 +36,7 @@ export function GuestCellClone({ assignment, width, guestIndex }: { assignment: 
         className={`w-full h-9 flex items-center rounded-sm mx-0 ${colors.bg} border ${colors.border} border-solid`}
       >
         <span className={`flex min-w-0 flex-1 flex-col px-2 ${colors.text}`}>
-          <span className="truncate text-[10px] font-semibold leading-[11px]">{displayName}</span>
+          <span className="truncate text-[13px] font-semibold leading-[14px]">{displayName}</span>
           <span className="truncate text-[9px] font-semibold leading-[10px] opacity-75">{stayNights}</span>
         </span>
       </div>

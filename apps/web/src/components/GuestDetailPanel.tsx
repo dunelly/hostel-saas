@@ -432,6 +432,19 @@ export function GuestDetailPanel({ reservation, onClose }: Props) {
                 Edit
               </button>
             )}
+            {guestProfile && (
+              <button
+                onClick={() => {
+                  setNotesInput(guestProfile.notes || "");
+                  setShowNotesEdit(!showNotesEdit);
+                }}
+                className={`px-3.5 py-1.5 text-xs font-bold rounded border transition-colors ${
+                  showNotesEdit ? "bg-amber-500 border-amber-500 text-white" : "bg-white border-slate-300 text-slate-600 hover:bg-slate-100"
+                }`}
+              >
+                Note
+              </button>
+            )}
             <button
               onClick={() => setShowBill(!showBill)}
               className={`px-3.5 py-1.5 text-xs font-bold rounded border transition-colors ${
@@ -852,7 +865,7 @@ export function GuestDetailPanel({ reservation, onClose }: Props) {
                   Extra nights
                 </div>
                 <div className="flex gap-1">
-                  {[1, 2, 3, 5, 7].map((n) => (
+                  {[1, 2, 3, 4, 5, 7].map((n) => (
                     <button
                       key={n}
                       onClick={() => setExtendNights(n)}

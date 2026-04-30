@@ -47,6 +47,8 @@ export function QuickAddPopover({ bedId, date, roomType, onClose }: Props) {
   const [selected, setSelected] = useState<GuestOption | null>(null);
   const [rebookMode, setRebookMode] = useState(false);
   const [rebookNights, setRebookNights] = useState(1);
+  const [customNights, setCustomNights] = useState("");
+  const [customRebookNights, setCustomRebookNights] = useState("");
 
   // Fetch assignments for existing guest picker
   const rangeFrom = format(subDays(new Date(), 30), "yyyy-MM-dd");
@@ -80,6 +82,16 @@ export function QuickAddPopover({ bedId, date, roomType, onClose }: Props) {
   function handleNightsChange(n: number) {
     const clamped = Math.max(1, n);
     setNights(clamped);
+    setCustomNights("");
+    setCheckOut(format(addDays(parseISO(date), clamped), "yyyy-MM-dd"));
+  }
+
+  function handleCustomNightsChange(val: string) {
+    setCustomNights(val);
+    const parsed = parseInt(val, 10);
+    if (!Number.isFinite(parsed)) return;
+    const clamped = Math.max(1, parsed);
+    setNights(clamped);
     setCheckOut(format(addDays(parseISO(date), clamped), "yyyy-MM-dd"));
   }
 
@@ -89,6 +101,18 @@ export function QuickAddPopover({ bedId, date, roomType, onClose }: Props) {
       (new Date(val).getTime() - new Date(date).getTime()) / 86400000
     );
     setNights(Math.max(1, diff));
+    setCustomNights(diff > 7 ? String(diff) : "");
+  }
+
+  function handleRebookNightsChange(n: number) {
+    setRebookNights(n);
+    setCustomRebookNights("");
+  }
+
+  function handleCustomRebookNightsChange(val: string) {
+    setCustomRebookNights(val);
+    const parsed = parseInt(val, 10);
+    if (Number.isFinite(parsed)) setRebookNights(Math.max(1, parsed));
   }
 
   // ── Mutations ─────────────────────────────────────────────────────────────
@@ -186,7 +210,7 @@ export function QuickAddPopover({ bedId, date, roomType, onClose }: Props) {
   return (
     <div
       ref={ref}
-      className="absolute z-50 w-72 bg-white rounded-xl shadow-2xl border border-slate-200 overflow-hidden"
+      className="absolute z-50 w-80 bg-white rounded-xl shadow-2xl border border-slate-200 overflow-hidden"
       style={{ top: "calc(100% + 4px)", left: 0 }}
       onClick={(e) => e.stopPropagation()}
     >
@@ -293,9 +317,9 @@ export function QuickAddPopover({ bedId, date, roomType, onClose }: Props) {
           </div>
 
           {/* Nights quick picker */}
-          <div className="flex items-center gap-2">
+          <div className="space-y-1.5">
             <span className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">{t("grid_nights")}</span>
-            <div className="flex items-center gap-1 ml-auto">
+            <div className="grid grid-cols-[repeat(6,1.75rem)_1fr] gap-1">
               {[1, 2, 3, 4, 5, 7].map((n) => (
                 <button
                   key={n}
@@ -310,6 +334,19 @@ export function QuickAddPopover({ bedId, date, roomType, onClose }: Props) {
                   {n}
                 </button>
               ))}
+              <input
+                type="number"
+                min={8}
+                max={365}
+                value={customNights}
+                onChange={(e) => handleCustomNightsChange(e.target.value)}
+                placeholder="Custom"
+                className={`h-7 min-w-0 rounded-lg border px-2 text-xs font-semibold outline-none transition-colors ${
+                  nights > 7
+                    ? "border-slate-900 bg-slate-900 text-white placeholder:text-white/70"
+                    : "border-slate-200 bg-slate-100 text-slate-600 placeholder:text-slate-400 focus:border-slate-400 focus:bg-white"
+                }`}
+              />
             </div>
           </div>
 
@@ -511,7 +548,7 @@ export function QuickAddPopover({ bedId, date, roomType, onClose }: Props) {
                         <button
                           key={n}
                           type="button"
-                          onClick={() => setRebookNights(n)}
+                          onClick={() => handleRebookNightsChange(n)}
                           className={`w-6 h-6 rounded-md text-[11px] font-semibold transition-colors ${
                             rebookNights === n
                               ? "bg-emerald-600 text-white"
@@ -521,6 +558,19 @@ export function QuickAddPopover({ bedId, date, roomType, onClose }: Props) {
                           {n}
                         </button>
                       ))}
+                      <input
+                        type="number"
+                        min={8}
+                        max={365}
+                        value={customRebookNights}
+                        onChange={(e) => handleCustomRebookNightsChange(e.target.value)}
+                        placeholder="Custom"
+                        className={`h-6 w-14 rounded-md border px-1.5 text-[10px] font-semibold outline-none transition-colors ${
+                          rebookNights > 7
+                            ? "border-emerald-600 bg-emerald-600 text-white placeholder:text-white/70"
+                            : "border-slate-200 bg-slate-100 text-slate-600 placeholder:text-slate-400 focus:border-slate-400 focus:bg-white"
+                        }`}
+                      />
                     </div>
                   </div>
                   <div className="text-[10px] text-slate-500">
