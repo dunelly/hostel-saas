@@ -104,10 +104,10 @@ export const GuestCell = React.memo(function GuestCell({
       : "";
 
   const radiusClass = {
-    single: "rounded-sm mx-[1px]",
-    start: "rounded-l-sm ml-[1px] -mr-px",
+    single: "mx-[1px]",
+    start: "ml-[1px] -mr-px",
     middle: "-mx-px",
-    end: "rounded-r-sm mr-[1px] -ml-px",
+    end: "mr-[1px] -ml-px",
   }[position];
 
   const showName = position === "start" || position === "single";
@@ -159,7 +159,7 @@ export const GuestCell = React.memo(function GuestCell({
             ref={setExtendNodeRef}
             {...extendAttrs}
             {...extendListeners}
-            className="absolute right-0 top-0 bottom-0 w-4 cursor-ew-resize hover:bg-black/10 z-10 rounded-r flex items-center justify-center opacity-10 hover:opacity-100 group-hover:opacity-60 transition-opacity"
+            className="absolute right-0 top-0 bottom-0 w-4 cursor-ew-resize hover:bg-black/10 z-10 flex items-center justify-center opacity-10 hover:opacity-100 group-hover:opacity-60 transition-opacity"
             onPointerDown={(e) => {
               // Trigger dnd-kit listeners before stopping propagation
               extendListeners?.onPointerDown?.(e);
