@@ -90,9 +90,42 @@ export async function importReservations(
     }
   }
 
+  async function findCoveringExcelReservation(name: string, checkIn: string, checkOut: string) {
+    return db
+      .select({
+        id: reservations.id,
+        externalId: reservations.externalId,
+        checkIn: reservations.checkIn,
+        checkOut: reservations.checkOut,
+      })
+      .from(reservations)
+      .innerJoin(guests, eq(reservations.guestId, guests.id))
+      .where(sql`
+        lower(${guests.name}) = lower(${name})
+        and ${reservations.status} != 'cancelled'
+        and ${reservations.rawData} like '%excel-sheet%'
+        and ${reservations.checkIn} < ${checkOut}
+        and ${reservations.checkOut} > ${checkIn}
+      `)
+      .limit(1);
+  }
+
   for (const imp of imports) {
     try {
       const trimmedName = imp.guestName.trim();
+
+      if (imp.source !== "manual") {
+        const coveredByExcel = await findCoveringExcelReservation(trimmedName, imp.checkIn, imp.checkOut);
+        if (coveredByExcel.length > 0) {
+          const sheetReservation = coveredByExcel[0];
+          warnings.push(
+            `skipped ${imp.source} import covered by Excel sheet: ${trimmedName} (${imp.checkIn} to ${imp.checkOut}) overlaps ${sheetReservation.externalId ?? sheetReservation.id} (${sheetReservation.checkIn} to ${sheetReservation.checkOut})`
+          );
+          duplicateCount++;
+          continue;
+        }
+      }
+
       const guestId = await getOrCreateGuestId(trimmedName);
 
       // Check for duplicate

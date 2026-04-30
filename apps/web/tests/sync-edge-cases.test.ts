@@ -109,6 +109,46 @@ describe("sync edge case hardening", () => {
     expect(rows).toHaveLength(2);
   });
 
+  it.each(["hostelworld", "booking.com"] as const)(
+    "skips %s imports already covered by authoritative Excel sheet rows",
+    async (source) => {
+      const sheetGuest = await db.insert(guests).values({ name: "Excel Covered Guest" }).returning({ id: guests.id });
+      await db.insert(reservations).values({
+        externalId: "sheet:1A-01:2026-06-01:2026-06-03:Excel Covered Guest:1",
+        source: "manual",
+        guestId: sheetGuest[0].id,
+        checkIn: "2026-06-01",
+        checkOut: "2026-06-03",
+        roomTypeReq: "mixed",
+        preferredRoomId: "1A",
+        numGuests: 1,
+        rawData: JSON.stringify({ source: "excel-sheet" }),
+      });
+
+      const result = await importReservations([
+        {
+          ...baseImport,
+          source,
+          externalId: `${source}-EXCEL-COVERED`,
+          guestName: "Excel Covered Guest",
+          checkIn: "2026-06-01",
+          checkOut: "2026-06-03",
+        },
+      ]);
+
+      expect(result.newIds).toHaveLength(0);
+      expect(result.assignIds).toHaveLength(0);
+      expect(result.duplicateCount).toBe(1);
+      expect(result.warnings).toContainEqual(expect.stringContaining("covered by Excel sheet"));
+
+      const rows = await db
+        .select()
+        .from(reservations)
+        .where(eq(reservations.externalId, `${source}-EXCEL-COVERED`));
+      expect(rows).toHaveLength(0);
+    }
+  );
+
   it("does not leave partial rows when assignment cannot cover every night", async () => {
     const blockerGuest = await db.insert(guests).values({ name: "Blocker" }).returning({ id: guests.id });
     const blockerReservation = await db
