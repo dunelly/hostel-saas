@@ -81,12 +81,9 @@ export async function autoAssign(
       })
       .map((r) => r.id)
       .filter((id) => !preferredIds.includes(id));
-    const overflowIds = allRooms
-      .map((r) => r.id)
-      .filter((id) => !preferredIds.includes(id) && !sameTypeIds.includes(id));
 
-    // Preferred → same type → overflow (female room can be used by anyone if hostel is full)
-    const eligibleRoomIds = [...preferredIds, ...sameTypeIds, ...overflowIds];
+    // Female beds stay female-only. Mixed bookings never overflow into female rooms.
+    const eligibleRoomIds = [...preferredIds, ...sameTypeIds];
 
     // Get existing assignments for the date range to check availability
     const existingAssignments = await db
@@ -119,6 +116,19 @@ export async function autoAssign(
     }
 
     let guestsAssigned = 0;
+    const assignedRoomIds: string[] = [];
+    const groupRoomId =
+      reservation.numGuests > 1
+        ? findBestRoomForGroup(
+            eligibleRoomIds,
+            bedsByRoom,
+            stayDates,
+            occupiedBedDates,
+            roomOccupancy,
+            roomMap,
+            reservation.numGuests
+          )
+        : null;
 
     for (let g = 0; g < reservation.numGuests; g++) {
       const guestLabel =
@@ -126,9 +136,19 @@ export async function autoAssign(
           ? `${reservation.guestName} (${g + 1})`
           : reservation.guestName;
 
+      const roomPreference =
+        groupRoomId ??
+        (assignedRoomIds.length > 0 ? assignedRoomIds[0] : null);
+      const prioritizedRoomIds = roomPreference
+        ? [
+            roomPreference,
+            ...eligibleRoomIds.filter((roomId) => roomId !== roomPreference),
+          ]
+        : eligibleRoomIds;
+
       // Try to find a single bed for the entire stay
       const bestBed = findBestBed(
-        eligibleRoomIds,
+        prioritizedRoomIds,
         bedsByRoom,
         stayDates,
         occupiedBedDates,
@@ -152,6 +172,7 @@ export async function autoAssign(
           bestBed.roomId,
           (roomOccupancy.get(bestBed.roomId) || 0) + 1
         );
+        assignedRoomIds.push(bestBed.roomId);
         guestsAssigned++;
       } else {
         // Split stay: no single bed available for the full stay.
@@ -161,7 +182,7 @@ export async function autoAssign(
 
         for (const date of stayDates) {
           const bedForNight = findBestBed(
-            eligibleRoomIds,
+            prioritizedRoomIds,
             bedsByRoom,
             [date],
             occupiedBedDates,
@@ -191,6 +212,27 @@ export async function autoAssign(
           );
           result.unassigned++;
         } else {
+          const nightsByRoom = new Map<string, number>();
+          for (const date of assignedDates) {
+            const assignment = await db
+              .select({ bedId: bedAssignments.bedId })
+              .from(bedAssignments)
+              .where(
+                and(
+                  eq(bedAssignments.reservationId, reservation.id),
+                  eq(bedAssignments.guestName, guestLabel),
+                  eq(bedAssignments.date, date)
+                )
+              )
+              .get();
+            const bedId = assignment?.bedId;
+            const roomId = bedId ? allBeds.find((b) => b.id === bedId)?.roomId : null;
+            if (roomId) {
+              nightsByRoom.set(roomId, (nightsByRoom.get(roomId) || 0) + 1);
+            }
+          }
+          const dominantRoomId = [...nightsByRoom.entries()].sort((a, b) => b[1] - a[1])[0]?.[0];
+          if (dominantRoomId) assignedRoomIds.push(dominantRoomId);
           guestsAssigned++;
         }
       }
@@ -200,6 +242,56 @@ export async function autoAssign(
   }
 
   return result;
+}
+
+function findBestRoomForGroup(
+  eligibleRoomIds: string[],
+  bedsByRoom: Map<string, { id: string; roomId: string; bedNumber: number }[]>,
+  dates: string[],
+  occupiedBedDates: Set<string>,
+  roomOccupancy: Map<string, number>,
+  roomMap: Map<string, { id: string; capacity: number }>,
+  groupSize: number
+): string | null {
+  type RoomCandidate = {
+    roomId: string;
+    priority: number;
+    occupancyRatio: number;
+    freeBeds: number;
+  };
+
+  const roomPriority = new Map(eligibleRoomIds.map((id, i) => [id, i]));
+  const candidates: RoomCandidate[] = [];
+
+  for (const roomId of eligibleRoomIds) {
+    const roomBeds = bedsByRoom.get(roomId) || [];
+    const room = roomMap.get(roomId);
+    if (!room) continue;
+
+    const freeBeds = roomBeds.filter((bed) =>
+      dates.every((date) => !occupiedBedDates.has(`${bed.id}:${date}`))
+    ).length;
+
+    if (freeBeds < groupSize) continue;
+
+    const occupancy = roomOccupancy.get(roomId) || 0;
+    candidates.push({
+      roomId,
+      priority: roomPriority.get(roomId) ?? 999,
+      occupancyRatio: occupancy / room.capacity,
+      freeBeds,
+    });
+  }
+
+  if (candidates.length === 0) return null;
+
+  candidates.sort((a, b) => {
+    if (a.priority !== b.priority) return a.priority - b.priority;
+    if (a.occupancyRatio !== b.occupancyRatio) return b.occupancyRatio - a.occupancyRatio;
+    return a.freeBeds - b.freeBeds;
+  });
+
+  return candidates[0].roomId;
 }
 
 /**

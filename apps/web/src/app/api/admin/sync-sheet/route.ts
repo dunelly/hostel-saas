@@ -35,6 +35,14 @@ function addOneDay(iso: string): string {
   return d.toISOString().slice(0, 10);
 }
 
+function minIsoDate(values: string[]): string {
+  return values.reduce((min, value) => (value < min ? value : min), values[0]);
+}
+
+function maxIsoDate(values: string[]): string {
+  return values.reduce((max, value) => (value > max ? value : max), values[0]);
+}
+
 function chunk<T>(items: T[], size: number): T[][] {
   const out: T[][] = [];
   for (let i = 0; i < items.length; i += size) out.push(items.slice(i, i + size));
@@ -106,6 +114,16 @@ function cleanName(value: string): string {
   return trimmed;
 }
 
+function isStructuralCell(value: string): boolean {
+  const trimmed = cleanName(value);
+  if (!trimmed) return true;
+  return /\bROOM\s+[0-9AB]+\b/i.test(trimmed);
+}
+
+function hasGuestCells(row: string[] | undefined): boolean {
+  return Boolean(row?.some((cell, idx) => idx > 0 && !isStructuralCell(cell)));
+}
+
 async function fetchSheetRows(gid: string) {
   const res = await fetch(SHEET_URL.replace("{gid}", gid));
   if (!res.ok) {
@@ -146,7 +164,8 @@ async function fetchSheetRows(gid: string) {
     }
     const roomId = roomIdMatch[1];
     const laneCount = ROOM_LAYOUT[roomId];
-    const laneRows = rows.slice(i + 2, i + 2 + laneCount);
+    const laneStart = hasGuestCells(rows[i + 1]) ? i + 1 : i + 2;
+    const laneRows = rows.slice(laneStart, laneStart + laneCount);
 
     for (let laneIdx = 0; laneIdx < laneRows.length; laneIdx += 1) {
       const lane = laneRows[laneIdx];
@@ -157,7 +176,7 @@ async function fetchSheetRows(gid: string) {
           const cellIdx = base + slotIdx;
           if (cellIdx >= lane.length) continue;
           const name = cleanName(lane[cellIdx]);
-          if (!name) continue;
+          if (isStructuralCell(name)) continue;
 
           let bedNumber = laneIdx * 4 + slotIdx + 1;
           if (roomId === "5A" && laneIdx === 2) {
@@ -175,7 +194,7 @@ async function fetchSheetRows(gid: string) {
       }
     }
 
-    i += 2 + laneCount;
+    i = laneStart + laneCount;
   }
 
   return out;
@@ -345,6 +364,12 @@ export async function POST(request: Request) {
     fetchSheetRows("1888445989"),
   ]);
   const sheetRows = [...aprilRows, ...mayRows];
+  const importedDates = [...new Set(sheetRows.map((row) => row.date))].sort();
+  if (importedDates.length === 0) {
+    return Response.json({ error: "No sheet rows parsed" }, { status: 400 });
+  }
+  const deleteFrom = minIsoDate(importedDates);
+  const deleteUntil = addOneDay(maxIsoDate(importedDates));
   const reservationsToInsert = buildReservations(sheetRows).map((row, index) => ({
     ...row,
     syncKey: `${row.bedId}:${row.start}:${addOneDay(row.end)}:${row.name}:${index}`,
@@ -354,14 +379,14 @@ export async function POST(request: Request) {
     delete from bed_assignments
     where reservation_id in (
       select id from reservations
-      where check_in < '2026-06-01'
-        and check_out > '2026-04-01'
+      where check_in < ${deleteUntil}
+        and check_out >= ${deleteFrom}
     )
   `);
   await db.run(sql`
     delete from reservations
-    where check_in < '2026-06-01'
-      and check_out > '2026-04-01'
+    where check_in < ${deleteUntil}
+      and check_out >= ${deleteFrom}
   `);
 
   const existingGuests = await db.select({ id: guests.id, name: guests.name }).from(guests);
@@ -469,6 +494,8 @@ export async function POST(request: Request) {
   return Response.json({
     ok: true,
     rows: sheetRows.length,
+    deleteFrom,
+    deleteUntil,
     reservations: reservationRecords.length,
     assignments: assignments.length,
     overlap: reservationRecords.length,
